@@ -1,0 +1,1337 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>O.S MDM V2 — OpenSID Master Data Management</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    :root{--blue:#1B5EA6;--blue-dark:#144a85;--blue-light:#e8f0fb;--green:#10B981;--red:#EF4444;--amber:#F59E0B;--gray-bg:#f3f4f6;}
+    body{font-family:system-ui,sans-serif;background:var(--gray-bg);}
+    .sidebar-link{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;font-size:12.5px;font-weight:500;color:#bfcfe8;transition:all .15s;cursor:pointer;}
+    .sidebar-link:hover,.sidebar-link.active{background:#1a5799;color:#fff;}
+    .sidebar-link .badge-cnt{margin-left:auto;background:#ef4444;color:#fff;font-size:11px;border-radius:999px;padding:1px 7px;}
+    .card{background:#fff;border-radius:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);border:1px solid #f0f0f0;padding:22px;}
+    .btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;padding:7px 14px;border-radius:8px;cursor:pointer;transition:all .15s;border:none;outline:none;}
+    .btn-primary{background:var(--blue);color:#fff;}.btn-primary:hover{background:var(--blue-dark);}
+    .btn-success{background:#059669;color:#fff;}.btn-success:hover{background:#047857;}
+    .btn-secondary{background:#fff;color:#374151;border:1px solid #e5e7eb;}.btn-secondary:hover{background:#f9fafb;}
+    .btn-danger{background:#ef4444;color:#fff;}.btn-danger:hover{background:#dc2626;}
+    .btn-warning{background:#f59e0b;color:#fff;}.btn-warning:hover{background:#d97706;}
+    .input{width:100%;padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;font-size:13px;outline:none;transition:border .15s;}
+    .input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(27,94,166,.1);}
+    .select{width:100%;padding:8px 12px;border:1px solid #e5e7eb;border-radius:8px;font-size:13px;outline:none;background:#fff;}
+    .badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;}
+    .table-th{padding:10px 14px;text-align:left;font-size:11px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;background:#f9fafb;}
+    .table-td{padding:10px 14px;font-size:13px;color:#374151;border-top:1px solid #f3f4f6;}
+    tr:hover td{background:#fafbff;}
+    .kpi-card{background:#fff;border-radius:14px;padding:18px 20px;border:1px solid #f0f0f0;box-shadow:0 1px 3px rgba(0,0,0,.05);}
+    .fade-in{animation:fi .2s ease-in;}
+    @keyframes fi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+    .spinner{animation:spin 1s linear infinite;}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .toast{position:fixed;top:16px;right:16px;z-index:9999;padding:12px 18px;border-radius:12px;font-size:13px;font-weight:500;color:#fff;box-shadow:0 4px 16px rgba(0,0,0,.15);transform:translateX(120%);transition:transform .3s ease;max-width:340px;}
+    .toast.show{transform:translateX(0);}
+    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px;}
+    .modal{background:#fff;border-radius:18px;box-shadow:0 8px 40px rgba(0,0,0,.18);width:100%;max-width:640px;max-height:90vh;overflow-y:auto;}
+    .section{display:none;}.section.active{display:block;}
+    .tab-btn{padding:8px 16px;font-size:13px;font-weight:500;border-radius:8px;cursor:pointer;border:none;background:transparent;color:#6b7280;transition:all .15s;}
+    .tab-btn.active{background:var(--blue);color:#fff;}
+    .status-ok{color:#059669;background:#d1fae5;}.status-error{color:#dc2626;background:#fee2e2;}.status-untested{color:#92400e;background:#fef3c7;}
+    .rule-strategy-tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;background:#e8f0fb;color:var(--blue);}
+    .progress-ring{transform:rotate(-90deg);}
+    .chart-container{position:relative;height:220px;}
+    #drop-zone.dragover{border-color:var(--blue)!important;background:#e8f0fb;}
+  </style>
+  <!-- Google Sign-In -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+
+<!-- TOAST -->
+<div id="toast"></div>
+
+<!-- ═══════════════════ LOGIN ═══════════════════ -->
+<div id="login-page" style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#e8f0fb 0%,#f3f4f6 100%);">
+  <div style="background:#fff;border-radius:20px;box-shadow:0 8px 40px rgba(27,94,166,.13);padding:40px 36px;width:100%;max-width:400px;">
+    <div style="text-align:center;margin-bottom:28px;">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNjAgODAiIHdpZHRoPSIyNjAiIGhlaWdodD0iODAiPgogIDwhLS0gQmFja2dyb3VuZDogdHJhbnNwYXJlbnQgKG1hdGNoZXMgcGFnZSBiZykgLS0+CiAgCiAgPCEtLSBJY29uOiByb3VuZGVkIHNxdWFyZSB3aXRoIERCL2RhdGEgc3RhY2tlZCBsYXllcnMgaWNvbiAtLT4KICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLCA0KSI+CiAgICA8IS0tIE91dGVyIHJvdW5kZWQgc3F1YXJlIC0tPgogICAgPHJlY3QgeD0iMiIgeT0iMiIgd2lkdGg9IjY4IiBoZWlnaHQ9IjY4IiByeD0iMTQiIHJ5PSIxNCIKICAgICAgICAgIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzFCNUVBNiIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgICA8IS0tIFRvcCBiYXIgKGxpa2UgYnJvd3NlciBjaHJvbWUpIC0tPgogICAgPGxpbmUgeDE9IjIiIHkxPSIyMSIgeDI9IjcwIiB5Mj0iMjEiIHN0cm9rZT0iIzFCNUVBNiIgc3Ryb2tlLXdpZHRoPSIzLjUiLz4KICAgIDwhLS0gVHdvIGRvdHMgLS0+CiAgICA8Y2lyY2xlIGN4PSIxNCIgY3k9IjEzIiByPSIzIiBmaWxsPSIjMUI1RUE2Ii8+CiAgICA8Y2lyY2xlIGN4PSIyNCIgY3k9IjEzIiByPSIzIiBmaWxsPSIjMUI1RUE2Ii8+CiAgICAKICAgIDwhLS0gRGF0YSBsYXllcnMgLyBNRE0gaWNvbiBpbnNpZGUgLS0+CiAgICA8IS0tIExheWVyIDEgKHRvcCBlbGxpcHNlKSAtLT4KICAgIDxlbGxpcHNlIGN4PSIzNiIgY3k9IjMzIiByeD0iMTYiIHJ5PSI1LjUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzFCNUVBNiIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgICA8IS0tIExheWVyIDIgKG1pZGRsZSkgLS0+CiAgICA8ZWxsaXBzZSBjeD0iMzYiIGN5PSI0MyIgcng9IjE2IiByeT0iNS41IiBmaWxsPSJub25lIiBzdHJva2U9IiMxQjVFQTYiIHN0cm9rZS13aWR0aD0iMyIvPgogICAgPCEtLSBMZWZ0IHNpZGUgbGluZXMgY29ubmVjdGluZyBsYXllcnMgLS0+CiAgICA8bGluZSB4MT0iMjAiIHkxPSIzMyIgeDI9IjIwIiB5Mj0iNDMiIHN0cm9rZT0iIzFCNUVBNiIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgICA8IS0tIFJpZ2h0IHNpZGUgbGluZXMgY29ubmVjdGluZyBsYXllcnMgLS0+CiAgICA8bGluZSB4MT0iNTIiIHkxPSIzMyIgeDI9IjUyIiB5Mj0iNDMiIHN0cm9rZT0iIzFCNUVBNiIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgICA8IS0tIExheWVyIDMgKGJvdHRvbSkgLS0+CiAgICA8ZWxsaXBzZSBjeD0iMzYiIGN5PSI1MyIgcng9IjE2IiByeT0iNS41IiBmaWxsPSJub25lIiBzdHJva2U9IiMxQjVFQTYiIHN0cm9rZS13aWR0aD0iMyIvPgogICAgPGxpbmUgeDE9IjIwIiB5MT0iNDMiIHgyPSIyMCIgeTI9IjUzIiBzdHJva2U9IiMxQjVFQTYiIHN0cm9rZS13aWR0aD0iMyIvPgogICAgPGxpbmUgeDE9IjUyIiB5MT0iNDMiIHgyPSI1MiIgeTI9IjUzIiBzdHJva2U9IiMxQjVFQTYiIHN0cm9rZS13aWR0aD0iMyIvPgogIDwvZz4KCiAgPCEtLSBUZXh0OiBPLlMgLS0+CiAgPHRleHQgeD0iODgiIHk9IjQ2IiAKICAgICAgICBmb250LWZhbWlseT0iJ1NlZ29lIFVJJywgc3lzdGVtLXVpLCBzYW5zLXNlcmlmIgogICAgICAgIGZvbnQtd2VpZ2h0PSI4MDAiCiAgICAgICAgZm9udC1zaXplPSIzNiIKICAgICAgICBmaWxsPSIjMUI1RUE2IgogICAgICAgIGxldHRlci1zcGFjaW5nPSItMSI+Ty5TPC90ZXh0PgogIAogIDwhLS0gVGV4dDogTURNIC0tPgogIDx0ZXh0IHg9Ijg4IiB5PSI2NiIKICAgICAgICBmb250LWZhbWlseT0iJ1NlZ29lIFVJJywgc3lzdGVtLXVpLCBzYW5zLXNlcmlmIgogICAgICAgIGZvbnQtd2VpZ2h0PSI0MDAiCiAgICAgICAgZm9udC1zaXplPSIxNyIKICAgICAgICBmaWxsPSIjMUI1RUE2IgogICAgICAgIGxldHRlci1zcGFjaW5nPSIzIj5NRE08L3RleHQ+CgogIDwhLS0gVmVydGljYWwgc2VwYXJhdG9yIGxpbmUgLS0+CiAgPGxpbmUgeDE9IjE2MiIgeTE9IjMwIiB4Mj0iMTYyIiB5Mj0iNjgiIHN0cm9rZT0iIzFCNUVBNiIgc3Ryb2tlLXdpZHRoPSIxLjUiIG9wYWNpdHk9IjAuNCIvPgoKICA8IS0tIFJpZ2h0IHRleHQ6IHNvZnR3YXJlIGRldmVsb3BtZW50IC0tPgogIDx0ZXh0IHg9IjE3MCIgeT0iNDciCiAgICAgICAgZm9udC1mYW1pbHk9IidTZWdvZSBVSScsIHN5c3RlbS11aSwgc2Fucy1zZXJpZiIKICAgICAgICBmb250LXdlaWdodD0iNDAwIgogICAgICAgIGZvbnQtc2l6ZT0iMTAiCiAgICAgICAgZmlsbD0iIzFCNUVBNiIKICAgICAgICBvcGFjaXR5PSIwLjgiPm1hc3RlciBkYXRhPC90ZXh0PgogIDx0ZXh0IHg9IjE3MCIgeT0iNjIiCiAgICAgICAgZm9udC1mYW1pbHk9IidTZWdvZSBVSScsIHN5c3RlbS11aSwgc2Fucy1zZXJpZiIKICAgICAgICBmb250LXdlaWdodD0iNjAwIgogICAgICAgIGZvbnQtc2l6ZT0iMTAiCiAgICAgICAgZmlsbD0iIzFCNUVBNiIKICAgICAgICBvcGFjaXR5PSIwLjgiPm1hbmFnZW1lbnQ8L3RleHQ+Cjwvc3ZnPg==" alt="O.S MDM" style="height:52px;width:auto;margin:0 auto 12px;display:block;"/>
+      <h1 style="font-size:22px;font-weight:800;color:var(--blue);margin:0;">O.S MDM</h1>
+      <p style="font-size:13px;color:#9ca3af;margin:4px 0 0;">OpenSID · Master Data Management V2</p>
+    </div>
+    <form id="login-form">
+      <div style="margin-bottom:14px;">
+        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:5px;">Email</label>
+        <input type="email" id="login-email" class="input" value="admin@osmdm.local" placeholder="admin@osmdm.local"/>
+      </div>
+      <div style="margin-bottom:18px;">
+        <label style="display:block;font-size:13px;font-weight:600;color:#374151;margin-bottom:5px;">Mot de passe</label>
+        <input type="password" id="login-password" class="input" value="admin123" placeholder="••••••••"/>
+      </div>
+      <div id="login-error" style="display:none;font-size:13px;color:#dc2626;background:#fee2e2;border-radius:8px;padding:10px 12px;margin-bottom:14px;"></div>
+      <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px;">Se connecter</button>
+      <div style="display:flex;align-items:center;gap:10px;margin:14px 0 10px;">
+        <div style="flex:1;height:1px;background:rgba(255,255,255,.2);"></div>
+        <span style="font-size:11px;color:rgba(255,255,255,.5);">ou continuer avec</span>
+        <div style="flex:1;height:1px;background:rgba(255,255,255,.2);"></div>
+      </div>
+      <button type="button" onclick="loginWithGoogle()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:10px;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:rgba(255,255,255,.1);cursor:pointer;font-size:13px;font-weight:600;color:#fff;margin-bottom:8px;">
+        <img src="https://www.google.com/favicon.ico" style="width:16px;height:16px;border-radius:2px;"> Se connecter avec Google
+      </button>
+      <button type="button" onclick="loginWithMicrosoft()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;padding:10px;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:rgba(255,255,255,.1);cursor:pointer;font-size:13px;font-weight:600;color:#fff;">
+        <img src="https://www.microsoft.com/favicon.ico" style="width:16px;height:16px;border-radius:2px;"> Se connecter avec Microsoft
+      </button>
+    </form>
+    <p style="text-align:center;font-size:11px;color:#d1d5db;margin-top:16px;">admin@osmdm.local / admin123</p>
+  </div>
+</div>
+
+<!-- ═══════════════════ APP ═══════════════════ -->
+<div id="app-page" style="min-height:100vh;display:none;">
+
+  <!-- SIDEBAR -->
+  <aside style="width:220px;background:#1B5EA6;display:flex;flex-direction:column;position:fixed;inset-y:0;left:0;z-index:40;overflow:hidden;">
+    <div style="padding:10px 14px 10px;border-bottom:1px solid rgba(255,255,255,.12);">
+      <div style="background:rgba(255,255,255,.95);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+        <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNjAgODAiIHdpZHRoPSIyNjAiIGhlaWdodD0iODAiPgogIDwhLS0gQmFja2dyb3VuZDogdHJhbnNwYXJlbnQgKG1hdGNoZXMgcGFnZSBiZykgLS0+CiAgCiAgPCEtLSBJY29uOiByb3VuZGVkIHNxdWFyZSB3aXRoIERCL2RhdGEgc3RhY2tlZCBsYXllcnMgaWNvbiAtLT4KICA8ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgwLCA0KSI+CiAgICA8IS0tIE91dGVyIHJvdW5kZWQgc3F1YXJlIC0tPgogICAgPHJlY3QgeD0iMiIgeT0iMiIgd2lkdGg9IjY4IiBoZWlnaHQ9IjY4IiByeD0iMTQiIHJ5PSIxNCIKICAgICAgICAgIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzFCNUVBNiIgc3Ryb2tlLXdpZHRoPSI0Ii8+CiAgICA8IS0tIFRvcCBiYXIgKGxpa2UgYnJvd3NlciBjaHJvbWUpIC0tPgogICAgPGxpbmUgeDE9IjIiIHkxPSIyMSIgeDI9IjcwIiB5Mj0iMjEiIHN0cm9rZT0iIzFCNUVBNiIgc3Ryb2tlLXdpZHRoPSIzLjUiLz4KICAgIDwhLS0gVHdvIGRvdHMgLS0+CiAgICA8Y2lyY2xlIGN4PSIxNCIgY3k9IjEzIiByPSIzIiBmaWxsPSIjMUI1RUE2Ii8+CiAgICA8Y2lyY2xlIGN4PSIyNCIgY3k9IjEzIiByPSIzIiBmaWxsPSIjMUI1RUE2Ii8+CiAgICAKICAgIDwhLS0gRGF0YSBsYXllcnMgLyBNRE0gaWNvbiBpbnNpZGUgLS0+CiAgICA8IS0tIExheWVyIDEgKHRvcCBlbGxpcHNlKSAtLT4KICAgIDxlbGxpcHNlIGN4PSIzNiIgY3k9IjMzIiByeD0iMTYiIHJ5PSI1LjUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzFCNUVBNiIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgICA8IS0tIExheWVyIDIgKG1pZGRsZSkgLS0+CiAgICA8ZWxsaXBzZSBjeD0iMzYiIGN5PSI0MyIgcng9IjE2IiByeT0iNS41IiBmaWxsPSJub25lIiBzdHJva2U9IiMxQjVFQTYiIHN0cm9rZS13aWR0aD0iMyIvPgogICAgPCEtLSBMZWZ0IHNpZGUgbGluZXMgY29ubmVjdGluZyBsYXllcnMgLS0+CiAgICA8bGluZSB4MT0iMjAiIHkxPSIzMyIgeDI9IjIwIiB5Mj0iNDMiIHN0cm9rZT0iIzFCNUVBNiIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgICA8IS0tIFJpZ2h0IHNpZGUgbGluZXMgY29ubmVjdGluZyBsYXllcnMgLS0+CiAgICA8bGluZSB4MT0iNTIiIHkxPSIzMyIgeDI9IjUyIiB5Mj0iNDMiIHN0cm9rZT0iIzFCNUVBNiIgc3Ryb2tlLXdpZHRoPSIzIi8+CiAgICA8IS0tIExheWVyIDMgKGJvdHRvbSkgLS0+CiAgICA8ZWxsaXBzZSBjeD0iMzYiIGN5PSI1MyIgcng9IjE2IiByeT0iNS41IiBmaWxsPSJub25lIiBzdHJva2U9IiMxQjVFQTYiIHN0cm9rZS13aWR0aD0iMyIvPgogICAgPGxpbmUgeDE9IjIwIiB5MT0iNDMiIHgyPSIyMCIgeTI9IjUzIiBzdHJva2U9IiMxQjVFQTYiIHN0cm9rZS13aWR0aD0iMyIvPgogICAgPGxpbmUgeDE9IjUyIiB5MT0iNDMiIHgyPSI1MiIgeTI9IjUzIiBzdHJva2U9IiMxQjVFQTYiIHN0cm9rZS13aWR0aD0iMyIvPgogIDwvZz4KCiAgPCEtLSBUZXh0OiBPLlMgLS0+CiAgPHRleHQgeD0iODgiIHk9IjQ2IiAKICAgICAgICBmb250LWZhbWlseT0iJ1NlZ29lIFVJJywgc3lzdGVtLXVpLCBzYW5zLXNlcmlmIgogICAgICAgIGZvbnQtd2VpZ2h0PSI4MDAiCiAgICAgICAgZm9udC1zaXplPSIzNiIKICAgICAgICBmaWxsPSIjMUI1RUE2IgogICAgICAgIGxldHRlci1zcGFjaW5nPSItMSI+Ty5TPC90ZXh0PgogIAogIDwhLS0gVGV4dDogTURNIC0tPgogIDx0ZXh0IHg9Ijg4IiB5PSI2NiIKICAgICAgICBmb250LWZhbWlseT0iJ1NlZ29lIFVJJywgc3lzdGVtLXVpLCBzYW5zLXNlcmlmIgogICAgICAgIGZvbnQtd2VpZ2h0PSI0MDAiCiAgICAgICAgZm9udC1zaXplPSIxNyIKICAgICAgICBmaWxsPSIjMUI1RUE2IgogICAgICAgIGxldHRlci1zcGFjaW5nPSIzIj5NRE08L3RleHQ+CgogIDwhLS0gVmVydGljYWwgc2VwYXJhdG9yIGxpbmUgLS0+CiAgPGxpbmUgeDE9IjE2MiIgeTE9IjMwIiB4Mj0iMTYyIiB5Mj0iNjgiIHN0cm9rZT0iIzFCNUVBNiIgc3Ryb2tlLXdpZHRoPSIxLjUiIG9wYWNpdHk9IjAuNCIvPgoKICA8IS0tIFJpZ2h0IHRleHQ6IHNvZnR3YXJlIGRldmVsb3BtZW50IC0tPgogIDx0ZXh0IHg9IjE3MCIgeT0iNDciCiAgICAgICAgZm9udC1mYW1pbHk9IidTZWdvZSBVSScsIHN5c3RlbS11aSwgc2Fucy1zZXJpZiIKICAgICAgICBmb250LXdlaWdodD0iNDAwIgogICAgICAgIGZvbnQtc2l6ZT0iMTAiCiAgICAgICAgZmlsbD0iIzFCNUVBNiIKICAgICAgICBvcGFjaXR5PSIwLjgiPm1hc3RlciBkYXRhPC90ZXh0PgogIDx0ZXh0IHg9IjE3MCIgeT0iNjIiCiAgICAgICAgZm9udC1mYW1pbHk9IidTZWdvZSBVSScsIHN5c3RlbS11aSwgc2Fucy1zZXJpZiIKICAgICAgICBmb250LXdlaWdodD0iNjAwIgogICAgICAgIGZvbnQtc2l6ZT0iMTAiCiAgICAgICAgZmlsbD0iIzFCNUVBNiIKICAgICAgICBvcGFjaXR5PSIwLjgiPm1hbmFnZW1lbnQ8L3RleHQ+Cjwvc3ZnPg==" alt="O.S MDM" style="height:28px;width:auto;"/>
+      </div>
+      <p style="font-size:12px;font-weight:700;color:#fff;margin:0;">O.S MDM</p>
+      <p style="font-size:10px;color:rgba(255,255,255,.5);margin:0;">OpenSID · V2.0</p>
+    </div>
+    <nav style="flex:1;padding:8px 6px;overflow-y:scroll;min-height:0;">
+      <p style="font-size:10px;font-weight:700;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.08em;padding:6px 10px 4px;">Principal</p>
+      <div class="sidebar-link active" data-section="dashboard">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        Dashboard
+      </div>
+      <p style="font-size:10px;font-weight:700;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.08em;padding:6px 10px 2px;">Données</p>
+      <div class="sidebar-link" data-section="connections">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/></svg>
+        Connexions DB
+      </div>
+      <div class="sidebar-link" data-section="connectors">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+        Connecteurs API
+      </div>
+      <div class="sidebar-link" data-section="import">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"/></svg>
+        Import
+      </div>
+      <div class="sidebar-link" data-section="entities">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+        Entités
+      </div>
+      <div class="sidebar-link" data-section="duplicates">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        Doublons
+        <span class="badge-cnt" id="dup-badge" style="display:none;">0</span>
+      </div>
+      <div class="sidebar-link" data-section="golden">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        Golden Records
+      </div>
+      <div class="sidebar-link" data-section="writeback">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+        Write-Back
+      </div>
+      <div class="sidebar-link" data-section="rules">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+        Règles de fusion
+      </div>
+            <p style="font-size:10px;font-weight:700;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.08em;padding:6px 10px 2px;">Maritime</p>
+      <div class="sidebar-link" data-section="maritime-vessels">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        Navires
+      </div>
+      <div class="sidebar-link" data-section="maritime-owners">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+        Armateurs
+      </div>
+      <div class="sidebar-link" data-section="maritime-ports">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        Ports
+      </div>
+      <div class="sidebar-link" data-section="maritime-calls">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+        Escales
+      </div>
+      <p style="font-size:10px;font-weight:700;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.08em;padding:6px 10px 2px;">Analytique</p>
+      <div class="sidebar-link" data-section="reporting">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        Reporting / BI
+      </div>
+      <div class="sidebar-link" data-section="export">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+        Export CSV
+      </div>
+      <p style="font-size:10px;font-weight:700;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.08em;padding:6px 10px 2px;">Administration</p>
+      <div class="sidebar-link" data-section="admin-users">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        Utilisateurs
+      </div>
+      <div class="sidebar-link" data-section="profile">
+        <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+        Mon profil
+      </div>
+    </nav>
+    <div style="padding:8px 8px;border-top:1px solid rgba(255,255,255,.12);flex-shrink:0;">
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;">
+        <div style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;" id="user-avatar">A</div>
+        <div style="flex:1;min-width:0;">
+          <p style="font-size:12px;font-weight:600;color:#fff;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="user-name">Admin</p>
+          <p style="font-size:10px;color:rgba(255,255,255,.5);margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" id="user-email">admin@osmdm.local</p>
+        </div>
+        <button onclick="logout()" title="Déconnexion" style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,.4);padding:4px;">
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main style="margin-left:220px;flex:1;display:flex;flex-direction:column;min-height:100vh;">
+    <header style="background:#fff;border-bottom:1px solid #f0f0f0;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:30;">
+      <div>
+        <h2 style="font-size:17px;font-weight:700;color:#111827;margin:0;" id="page-title">Dashboard</h2>
+        <p style="font-size:12px;color:#9ca3af;margin:2px 0 0;" id="page-subtitle">Vue d'ensemble</p>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:12px;color:#9ca3af;" id="header-date"></span>
+      </div>
+    </header>
+    <div style="flex:1;padding:20px 24px;" id="content">
+
+      <!-- ── DASHBOARD ── -->
+      <div class="section active fade-in" id="section-dashboard">
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin-bottom:20px;" id="dashboard-kpis">
+          <div class="kpi-card" style="grid-column:span 1;"><p style="font-size:11px;color:#6b7280;font-weight:600;margin:0 0 6px;">Entités</p><p style="font-size:28px;font-weight:800;color:#111827;margin:0;" id="d-entities">—</p></div>
+          <div class="kpi-card"><p style="font-size:11px;color:#6b7280;font-weight:600;margin:0 0 6px;">Doublons</p><p style="font-size:28px;font-weight:800;color:#ef4444;margin:0;" id="d-dups">—</p></div>
+          <div class="kpi-card"><p style="font-size:11px;color:#6b7280;font-weight:600;margin:0 0 6px;">Golden Records</p><p style="font-size:28px;font-weight:800;color:#059669;margin:0;" id="d-golden">—</p></div>
+          <div class="kpi-card"><p style="font-size:11px;color:#6b7280;font-weight:600;margin:0 0 6px;">Imports</p><p style="font-size:28px;font-weight:800;color:#111827;margin:0;" id="d-imports">—</p></div>
+          <div class="kpi-card"><p style="font-size:11px;color:#6b7280;font-weight:600;margin:0 0 6px;">Connexions DB</p><p style="font-size:28px;font-weight:800;color:#1B5EA6;margin:0;" id="d-conns">—</p></div>
+          <div class="kpi-card"><p style="font-size:11px;color:#6b7280;font-weight:600;margin:0 0 6px;">Règles actives</p><p style="font-size:28px;font-weight:800;color:#f59e0b;margin:0;" id="d-rules">—</p></div>
+        </div>
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:16px;">
+          <div class="card"><h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 14px;">Dernières entités</h3><div id="recent-entities"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div></div>
+          <div class="card"><h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 14px;">Répartition par source</h3><div id="source-breakdown"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div></div>
+        </div>
+      </div>
+
+      <!-- ── CONNEXIONS DB ── -->
+      <div class="section fade-in" id="section-connections">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div></div>
+          <button class="btn btn-primary" onclick="openConnModal()">+ Nouvelle connexion</button>
+        </div>
+        <div id="connections-list"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div>
+        <!-- Import depuis DB panel -->
+        <div class="card" style="margin-top:16px;" id="db-import-panel" style="display:none;">
+          <h3 style="font-size:14px;font-weight:700;color:#111827;margin:0 0 14px;">📥 Importer depuis une table</h3>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+            <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Table</label>
+            <select class="select" id="db-import-table"><option value="">— Sélectionner —</option></select></div>
+            <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Label source</label>
+            <input class="input" id="db-import-label" placeholder="ex: CRM Production"/></div>
+          </div>
+          <div style="margin-bottom:12px;">
+            <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Ou SQL personnalisé (optionnel)</label>
+            <textarea class="input" id="db-import-sql" rows="3" placeholder="SELECT * FROM clients WHERE actif = 1 LIMIT 5000" style="resize:vertical;font-family:monospace;font-size:12px;"></textarea>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary" onclick="previewTable()">👁 Prévisualiser (20 lignes)</button>
+            <button class="btn btn-primary" onclick="importFromDB()">📥 Importer</button>
+          </div>
+          <div id="db-preview" style="margin-top:14px;overflow-x:auto;"></div>
+        </div>
+      </div>
+
+      <!-- ── CONNECTEURS API / ERP ── -->
+      <div class="section fade-in" id="section-connectors" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;margin:0 0 2px;">Connecteurs API / ERP</h3>
+            <p style="font-size:12px;color:#9ca3af;margin:0;">Connectez vos outils externes — MarineTraffic, Salesforce, SAP, Odoo…</p>
+          </div>
+          <button class="btn btn-primary" onclick="openConnectorModal()">+ Nouveau connecteur</button>
+        </div>
+        <!-- Presets rapides -->
+        <div class="card" style="margin-bottom:16px;">
+          <h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">⚡ Ajout rapide — Connecteurs pré-configurés</h4>
+          <div id="connector-presets" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;"></div>
+        </div>
+        <!-- Liste des connecteurs -->
+        <div id="connectors-list"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div>
+      </div>
+
+      <!-- ── IMPORT ── -->
+      <div class="section fade-in" id="section-import">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div class="card">
+            <h3 style="font-size:14px;font-weight:700;margin:0 0 14px;">Importer CSV / Excel</h3>
+            <div id="drop-zone" onclick="document.getElementById('file-input').click()"
+              style="border:2px dashed #e5e7eb;border-radius:12px;padding:36px;text-align:center;cursor:pointer;transition:all .2s;">
+              <svg width="40" height="40" style="color:#d1d5db;margin:0 auto 10px;display:block;" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              <p style="font-size:13px;font-weight:600;color:#6b7280;margin:0;">Glissez ou cliquez</p>
+              <p style="font-size:11px;color:#9ca3af;margin:4px 0 0;">CSV ou Excel — max 100MB</p>
+              <input type="file" id="file-input" style="display:none;" accept=".csv,.xlsx,.xls" onchange="handleFileSelect(event)"/>
+            </div>
+            <div id="file-preview" style="display:none;margin-top:12px;padding:10px 12px;background:#e8f0fb;border-radius:8px;display:flex;align-items:center;justify-content:space-between;">
+              <span style="font-size:13px;font-weight:500;color:#1B5EA6;" id="selected-filename"></span>
+              <button onclick="clearFile()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:16px;">✕</button>
+            </div>
+            <div style="margin-top:12px;">
+              <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Label de la source</label>
+              <input class="input" id="import-source-label" placeholder="ex: CRM, ERP, Salesforce…"/>
+            </div>
+            <button class="btn btn-primary" onclick="uploadFile()" id="upload-btn" style="width:100%;justify-content:center;margin-top:12px;padding:9px;" disabled>Importer</button>
+            <div id="import-result" style="display:none;margin-top:12px;padding:10px 12px;border-radius:8px;font-size:13px;"></div>
+          </div>
+          <div class="card">
+            <h3 style="font-size:14px;font-weight:700;margin:0 0 14px;">Historique des imports</h3>
+            <div id="import-logs-list"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── ENTITÉS ── -->
+      <div class="section fade-in" id="section-entities">
+        <div class="card">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <input class="input" style="max-width:220px;" placeholder="Rechercher…" id="entity-search" oninput="debounceSearch()"/>
+            <select class="select" style="max-width:160px;" id="entity-source-filter" onchange="loadEntities()">
+              <option value="">Toutes sources</option>
+            </select>
+            <select class="select" style="max-width:160px;" id="entity-cols-select" onchange="loadEntities()">
+              <option value="">Toutes colonnes</option>
+            </select>
+            <div style="margin-left:auto;">
+              <button class="btn btn-secondary" style="font-size:12px;" onclick="refreshEntitySources()">↻ Sources</button>
+              <button class="btn btn-primary" onclick="openCreateEntity()">+ Nouvelle entité</button>
+            </div>
+          </div>
+          <div id="entities-table" style="overflow-x:auto;"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;">
+            <p style="font-size:12px;color:#9ca3af;margin:0;" id="entity-count"></p>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <button class="btn btn-secondary" onclick="prevPage()" id="prev-btn" style="padding:5px 10px;font-size:12px;" disabled>← Préc.</button>
+              <span style="font-size:12px;color:#6b7280;padding:0 6px;" id="page-info">Page 1</span>
+              <button class="btn btn-secondary" onclick="nextPage()" id="next-btn" style="padding:5px 10px;font-size:12px;" disabled>Suiv. →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ── ADMIN USERS ── -->
+      <div class="section fade-in" id="section-admin-users" style="display:none;">
+        <div class="card" style="margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+            <div>
+              <h2 style="font-size:16px;font-weight:700;margin:0;">Gestion des utilisateurs</h2>
+              <p style="font-size:12px;color:#9ca3af;margin:4px 0 0;">Créer, modifier et gérer les accès</p>
+            </div>
+            <button class="btn btn-primary" onclick="openUserModal(null)">+ Nouvel utilisateur</button>
+          </div>
+          <div id="users-table"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div>
+        </div>
+      </div>
+
+      <!-- ── PROFIL ── -->
+      <div class="section fade-in" id="section-profile" style="display:none;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:800px;">
+          <div class="card">
+            <h3 style="font-size:14px;font-weight:700;margin:0 0 16px;">Informations personnelles</h3>
+            <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;">
+              <div id="profile-avatar" style="width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#1B5EA6,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:22px;color:#fff;font-weight:700;">A</div>
+              <div>
+                <p id="profile-name-display" style="font-size:15px;font-weight:700;margin:0;color:#1f2937;">—</p>
+                <p id="profile-email-display" style="font-size:12px;color:#9ca3af;margin:2px 0 0;">—</p>
+                <span id="profile-role-badge" style="font-size:11px;padding:2px 8px;border-radius:20px;background:#e8f0fb;color:#1B5EA6;font-weight:600;">—</span>
+              </div>
+            </div>
+            <div style="margin-bottom:12px;">
+              <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Nom complet</label>
+              <input class="input" id="profile-name" placeholder="Votre nom"/>
+            </div>
+            <div style="margin-bottom:16px;">
+              <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Email</label>
+              <input class="input" id="profile-email" disabled style="background:#f9fafb;color:#9ca3af;"/>
+            </div>
+            <button class="btn btn-primary" onclick="saveProfile()" style="width:100%;justify-content:center;">Enregistrer</button>
+          </div>
+          <div class="card" id="profile-password-card">
+            <h3 style="font-size:14px;font-weight:700;margin:0 0 16px;">Changer le mot de passe</h3>
+            <div style="margin-bottom:12px;">
+              <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Mot de passe actuel</label>
+              <input class="input" type="password" id="pw-old" placeholder="••••••••"/>
+            </div>
+            <div style="margin-bottom:12px;">
+              <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Nouveau mot de passe</label>
+              <input class="input" type="password" id="pw-new" placeholder="8 caractères minimum"/>
+            </div>
+            <div style="margin-bottom:16px;">
+              <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Confirmer</label>
+              <input class="input" type="password" id="pw-confirm" placeholder="••••••••"/>
+            </div>
+            <button class="btn btn-primary" onclick="changePassword()" style="width:100%;justify-content:center;">Mettre à jour</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── DOUBLONS ── -->
+      <div class="section fade-in" id="section-duplicates">
+        <div class="card" style="margin-bottom:16px;">
+          <h3 style="font-size:14px;font-weight:700;margin:0 0 14px;">Paramètres de détection</h3>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end;">
+            <div>
+              <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Méthode</label>
+              <select class="select" id="dup-method" onchange="toggleFuzzy()">
+                <option value="exact">Correspondance exacte</option>
+                <option value="fuzzy">Fuzzy (approximatif)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Source</label>
+              <select class="select" id="dup-source-filter" onchange="loadDupFields()">
+                <option value="">Toutes sources</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Champ à comparer</label>
+              <select class="select" id="dup-field-select">
+                <option value="">— Sélectionner un champ —</option>
+              </select>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <div id="fuzzy-threshold-wrap" style="display:none;">
+                <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Seuil %</label>
+                <input type="number" class="input" id="dup-threshold" value="80" min="50" max="100" style="width:80px;"/>
+              </div>
+              <button class="btn btn-primary" onclick="detectDuplicates()" id="detect-btn">🔍 Détecter</button>
+            </div>
+          </div>
+        </div>
+        <div id="duplicates-list"><p style="color:#9ca3af;font-size:13px;">Cliquez sur "Détecter" pour trouver les doublons.</p></div>
+      </div>
+
+      <!-- ── GOLDEN RECORDS ── -->
+      <div class="section fade-in" id="section-golden">
+        <div class="card"><h3 style="font-size:14px;font-weight:700;margin:0 0 4px;">Golden Records</h3>
+        <p style="font-size:12px;color:#9ca3af;margin:0 0 14px;">Entités consolidées après fusion.</p>
+        <div id="golden-list" style="overflow-x:auto;"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div></div>
+      </div>
+
+      <!-- ── WRITE-BACK ── -->
+      <div class="section fade-in" id="section-writeback" style="display:none;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;margin:0 0 2px;">Write-Back</h3>
+            <p style="font-size:12px;color:#9ca3af;margin:0;">Repoussez vos Golden Records validés vers vos systèmes sources (SQL Server, API, ERP…).</p>
+          </div>
+          <button class="btn btn-primary" onclick="openWritebackModal()">+ Nouvelle destination</button>
+        </div>
+        <!-- Explication -->
+        <div class="card" style="margin-bottom:16px;background:linear-gradient(135deg,#e8f0fb,#fef3c7);border:1px solid #bfcfe8;">
+          <h4 style="font-size:13px;font-weight:700;color:#1B5EA6;margin:0 0 8px;">🔄 Comment ça marche ?</h4>
+          <div style="display:flex;align-items:center;gap:12px;font-size:12px;color:#374151;">
+            <div style="text-align:center;">
+              <span style="font-size:28px;">📥</span><br><b>Import</b><br><span style="font-size:10px;color:#6b7280;">Sources → MDM</span>
+            </div>
+            <span style="font-size:20px;color:#9ca3af;">→</span>
+            <div style="text-align:center;">
+              <span style="font-size:28px;">🔍</span><br><b>Nettoyage</b><br><span style="font-size:10px;color:#6b7280;">Doublons, validation</span>
+            </div>
+            <span style="font-size:20px;color:#9ca3af;">→</span>
+            <div style="text-align:center;">
+              <span style="font-size:28px;">⭐</span><br><b>Golden Record</b><br><span style="font-size:10px;color:#6b7280;">Donnée de référence</span>
+            </div>
+            <span style="font-size:20px;color:#d97706;">→</span>
+            <div style="text-align:center;background:#fef3c7;border-radius:8px;padding:6px 10px;">
+              <span style="font-size:28px;">📤</span><br><b style="color:#d97706;">Write-Back</b><br><span style="font-size:10px;color:#92400e;">MDM → Sources</span>
+            </div>
+          </div>
+        </div>
+        <!-- Destinations configurées -->
+        <div id="writeback-list"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div>
+        <!-- Historique -->
+        <div class="card" style="margin-top:16px;">
+          <h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">📋 Historique des envois</h4>
+          <div id="writeback-logs"><p style="color:#9ca3af;font-size:12px;">Aucun envoi.</p></div>
+        </div>
+      </div>
+
+      <!-- ── RÈGLES DE FUSION ── -->
+      <div class="section fade-in" id="section-rules">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;margin:0 0 2px;">Règles de fusion</h3>
+            <p style="font-size:12px;color:#9ca3af;margin:0;">Quand deux doublons sont fusionnés en Golden Record, ces règles décident quelle valeur garder.</p>
+          </div>
+          <button class="btn btn-primary" onclick="openRuleModal()">+ Nouvelle règle</button>
+        </div>
+        <!-- Explication visuelle -->
+        <div class="card" style="margin-bottom:16px;background:linear-gradient(135deg,#e8f0fb,#f0fdf4);border:1px solid #bfcfe8;">
+          <h4 style="font-size:13px;font-weight:700;color:#1B5EA6;margin:0 0 10px;">🎯 Comment ça marche ?</h4>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;font-size:12px;color:#374151;">
+            <div>
+              <p style="font-weight:700;margin:0 0 6px;">1️⃣ Règle générale (s'applique à TOUS les champs)</p>
+              <p style="margin:0;color:#6b7280;">Portée = <b>Tous les champs (*)</b> → la stratégie s'applique partout par défaut. Pas besoin de créer une règle par champ.</p>
+            </div>
+            <div>
+              <p style="font-weight:700;margin:0 0 6px;">2️⃣ Exception (override un champ précis)</p>
+              <p style="margin:0;color:#6b7280;">Portée = <b>Un champ spécifique</b> (ex: email) → cette règle prend le dessus sur la règle générale pour ce champ uniquement.</p>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;font-size:11px;">
+            <div style="background:#fff;border-radius:8px;padding:8px;"><b style="color:#1B5EA6;">📏 Plus complet</b><br>Garde la valeur la plus longue / détaillée</div>
+            <div style="background:#fff;border-radius:8px;padding:8px;"><b style="color:#059669;">✅ Non vide</b><br>Prend la première valeur non vide</div>
+            <div style="background:#fff;border-radius:8px;padding:8px;"><b style="color:#7c3aed;">📊 Priorité source</b><br>Préfère la source la plus fiable (CRM > ERP > Manuel…)</div>
+          </div>
+        </div>
+        <div id="rules-list"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div>
+      </div>
+
+      <!-- ── REPORTING / BI ── -->
+      <div class="section fade-in" id="section-reporting">
+        <!-- Tabs -->
+        <div style="display:flex;gap:6px;margin-bottom:18px;background:#fff;padding:6px;border-radius:12px;width:fit-content;box-shadow:0 1px 4px rgba(0,0,0,.06);">
+          <button class="tab-btn active" onclick="switchReportTab('overview',this)">📊 Vue globale</button>
+          <button class="tab-btn" onclick="switchReportTab('pivot',this)">🔢 Tableau croisé</button>
+          <button class="tab-btn" onclick="switchReportTab('pdf',this)">📄 Export PDF</button>
+        </div>
+
+        <!-- Overview tab -->
+        <div id="report-overview">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px;" id="bi-kpis"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+            <div class="card"><h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">Évolution des imports (30j)</h4><div class="chart-container"><canvas id="chart-imports"></canvas></div></div>
+            <div class="card"><h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">Répartition par source</h4><div class="chart-container"><canvas id="chart-sources"></canvas></div></div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div class="card"><h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">Doublons détectés (30j)</h4><div class="chart-container"><canvas id="chart-dups"></canvas></div></div>
+            <div class="card"><h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">Golden Records créés (30j)</h4><div class="chart-container"><canvas id="chart-gr"></canvas></div></div>
+          </div>
+        </div>
+
+        <!-- Pivot tab -->
+        <div id="report-pivot" style="display:none;">
+          <div class="card" style="margin-bottom:16px;">
+            <h4 style="font-size:14px;font-weight:700;margin:0 0 14px;">Tableau croisé dynamique</h4>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:12px;">
+              <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Champ ligne (rows)</label>
+              <select class="select" id="pivot-row"></select></div>
+              <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Champ colonne (optionnel)</label>
+              <select class="select" id="pivot-col"><option value="">— Aucun —</option></select></div>
+              <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Agrégation</label>
+              <select class="select" id="pivot-agg">
+                <option value="count">Comptage (count)</option>
+                <option value="sum">Somme (sum)</option>
+                <option value="mean">Moyenne (mean)</option>
+                <option value="max">Maximum (max)</option>
+                <option value="min">Minimum (min)</option>
+              </select></div>
+              <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Champ valeur (si ≠ count)</label>
+              <select class="select" id="pivot-value"><option value="">— Aucun —</option></select></div>
+            </div>
+            <button class="btn btn-primary" onclick="runPivot()">Générer le tableau</button>
+          </div>
+          <div class="card"><div id="pivot-result"><p style="color:#9ca3af;font-size:13px;">Configurez et cliquez sur "Générer".</p></div></div>
+        </div>
+
+        <!-- PDF tab -->
+        <div id="report-pdf" style="display:none;">
+          <div class="card" style="max-width:600px;">
+            <h4 style="font-size:14px;font-weight:700;margin:0 0 8px;">Export rapport PDF</h4>
+            <p style="font-size:13px;color:#6b7280;margin:0 0 18px;">Génère un rapport complet avec tous les KPIs et graphiques actuels.</p>
+            <div style="background:#f9fafb;border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:#374151;">
+              Le rapport inclura : KPIs globaux · Répartition par source · Évolution des imports · Taux de doublons · Couverture Golden Records
+            </div>
+            <button class="btn btn-primary" onclick="exportPDF()" style="gap:8px;">
+              <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+              Télécharger rapport PDF
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── EXPORT ── -->
+      <div class="section fade-in" id="section-export">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div class="card">
+            <h3 style="font-size:14px;font-weight:700;margin:0 0 4px;">Entités actives</h3>
+            <p style="font-size:12px;color:#9ca3af;margin:0 0 16px;">Toutes les entités de la base MDM.</p>
+            <div style="margin-bottom:10px;">
+              <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Filtrer par source</label>
+              <input class="input" id="export-source" placeholder="ex: CRM, ERP…"/>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:14px;">
+              <input type="checkbox" id="export-merged" style="width:14px;height:14px;"/>
+              <label style="font-size:13px;color:#374151;">Inclure les entités fusionnées</label>
+            </div>
+            <button class="btn btn-primary" onclick="exportEntities()" style="width:100%;justify-content:center;">📥 Exporter CSV</button>
+          </div>
+          <div class="card">
+            <h3 style="font-size:14px;font-weight:700;margin:0 0 4px;">Golden Records</h3>
+            <p style="font-size:12px;color:#9ca3af;margin:0 0 16px;">Uniquement les données consolidées validées.</p>
+            <div style="background:#d1fae5;border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:#065f46;">
+              ✅ Ce fichier est la "base nettoyée" de référence — prête à être réinjectée dans vos systèmes.
+            </div>
+            <button class="btn btn-success" onclick="exportGolden()" style="width:100%;justify-content:center;">📥 Exporter Golden Records</button>
+          </div>
+        </div>
+      </div>
+
+
+      <!-- ── NAVIRES ── -->
+      <!-- ── DASHBOARD MARITIME ── -->
+      <div class="section fade-in" id="section-maritime-dashboard" style="display:none;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;margin:0 0 2px;">Dashboard Maritime</h3>
+            <p style="font-size:12px;color:#9ca3af;margin:0;">Vue consolidée de votre activité maritime</p>
+          </div>
+          <button class="btn btn-primary" onclick="openMigrationModal()">⬆️ Importer depuis les Entités</button>
+        </div>
+        <!-- KPIs -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;" id="mar-dash-kpis"></div>
+        <!-- Alertes -->
+        <div id="mar-dash-alerts" style="margin-bottom:16px;"></div>
+        <!-- Graphiques row 1 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">📈 Escales — 60 derniers jours</h4>
+            <canvas id="mar-calls-timeline" style="max-height:180px;"></canvas>
+          </div>
+          <div class="card">
+            <h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">🚢 Statuts des escales</h4>
+            <canvas id="mar-calls-status" style="max-height:180px;"></canvas>
+          </div>
+        </div>
+        <!-- Graphiques row 2 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div class="card">
+            <h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">🏳️ Navires par pavillon</h4>
+            <canvas id="mar-flag-chart" style="max-height:160px;"></canvas>
+          </div>
+          <div class="card">
+            <h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">⚓ Top ports</h4>
+            <canvas id="mar-ports-chart" style="max-height:160px;"></canvas>
+          </div>
+          <div class="card">
+            <h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">📦 Types de cargaison</h4>
+            <canvas id="mar-cargo-chart" style="max-height:160px;"></canvas>
+          </div>
+        </div>
+        <!-- Escales récentes -->
+        <div class="card">
+          <h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">🕐 Escales récentes</h4>
+          <div id="mar-recent-calls" style="overflow-x:auto;"></div>
+        </div>
+        <!-- §4.3 Qualité des données -->
+        <div class="card" style="margin-top:16px;">
+          <h4 style="font-size:13px;font-weight:700;margin:0 0 12px;">🔍 Qualité des données MDM</h4>
+          <div id="mar-quality-panel" style="overflow-x:auto;">
+            <p style="color:#9ca3af;font-size:12px;">Chargement…</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="section fade-in" id="section-maritime-vessels">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;margin:0 0 2px;">Flotte — Navires</h3>
+            <p style="font-size:12px;color:#9ca3af;margin:0;">Référentiel navires avec validation IMO / MMSI</p>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-secondary" onclick="openMigrationModal()">⬆️ Importer depuis entités</button>
+            <button class="btn btn-primary" onclick="openVesselModal()">+ Nouveau navire</button>
+          </div>
+        </div>
+        <!-- KPIs maritimes -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;" id="maritime-kpis"></div>
+        <div class="card">
+          <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <input class="input" style="max-width:200px;" placeholder="Nom, IMO, MMSI…" id="vessel-search" oninput="debounceVessels()"/>
+            <select class="select" style="max-width:150px;" id="vessel-flag" onchange="loadVessels()"><option value="">Tous pavillons</option></select>
+            <select class="select" style="max-width:160px;" id="vessel-type-filter" onchange="loadVessels()"><option value="">Tous types</option></select>
+          </div>
+          <div id="vessels-table" style="overflow-x:auto;"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
+            <p style="font-size:12px;color:#9ca3af;margin:0;" id="vessel-count"></p>
+            <div style="display:flex;gap:6px;">
+              <button class="btn btn-secondary" onclick="vesselPrevPage()" id="vessel-prev" style="padding:5px 10px;font-size:12px;" disabled>← Préc.</button>
+              <span style="font-size:12px;color:#6b7280;padding:0 6px;" id="vessel-page-info">Page 1</span>
+              <button class="btn btn-secondary" onclick="vesselNextPage()" id="vessel-next" style="padding:5px 10px;font-size:12px;" disabled>Suiv. →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── ARMATEURS ── -->
+      <div class="section fade-in" id="section-maritime-owners">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;margin:0 0 2px;">Armateurs / Propriétaires</h3>
+            <p style="font-size:12px;color:#9ca3af;margin:0;">Gestion des armateurs et leur flotte</p>
+          </div>
+          <button class="btn btn-primary" onclick="openOwnerModal()">+ Nouvel armateur</button>
+        </div>
+        <div class="card">
+          <div style="display:flex;gap:10px;margin-bottom:14px;">
+            <input class="input" style="max-width:220px;" placeholder="Nom armateur…" id="owner-search" oninput="debounceOwners()"/>
+            <select class="select" style="max-width:160px;" id="owner-country" onchange="loadOwners()"><option value="">Tous pays</option></select>
+          </div>
+          <div id="owners-table" style="overflow-x:auto;"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div>
+        </div>
+      </div>
+
+      <!-- ── PORTS ── -->
+      <div class="section fade-in" id="section-maritime-ports">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;margin:0 0 2px;">Ports & Terminaux</h3>
+            <p style="font-size:12px;color:#9ca3af;margin:0;">Référentiel ports avec validation UN/LOCODE</p>
+          </div>
+          <button class="btn btn-primary" onclick="openPortModal()">+ Nouveau port</button>
+        </div>
+        <div class="card">
+          <div style="display:flex;gap:10px;margin-bottom:14px;">
+            <input class="input" style="max-width:220px;" placeholder="Nom port, LOCODE…" id="port-search" oninput="debouncePorts()"/>
+            <select class="select" style="max-width:160px;" id="port-country" onchange="loadPorts()"><option value="">Tous pays</option></select>
+          </div>
+          <div id="ports-table" style="overflow-x:auto;"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div>
+        </div>
+      </div>
+
+      <!-- ── ESCALES ── -->
+      <div class="section fade-in" id="section-maritime-calls">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <div>
+            <h3 style="font-size:16px;font-weight:700;margin:0 0 2px;">Escales (Port Calls)</h3>
+            <p style="font-size:12px;color:#9ca3af;margin:0;">Suivi des mouvements navires par port</p>
+          </div>
+          <button class="btn btn-primary" onclick="openCallModal()">+ Nouvelle escale</button>
+        </div>
+        <div class="card">
+          <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            <input class="input" style="max-width:200px;" placeholder="Navire, IMO, port…" id="call-search" oninput="debounceCalls()"/>
+            <select class="select" style="max-width:160px;" id="call-status-filter" onchange="loadCalls()">
+              <option value="">Tous statuts</option>
+              <option value="Planned">Planned</option>
+              <option value="In Transit">In Transit</option>
+              <option value="At Anchor">At Anchor</option>
+              <option value="Berthed">Berthed</option>
+              <option value="Departed">Departed</option>
+              <option value="Cancelled">Cancelled</option>
+            </select>
+          </div>
+          <div id="calls-table" style="overflow-x:auto;"><p style="color:#9ca3af;font-size:13px;">Chargement…</p></div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </main>
+</div><!-- /app -->
+
+<!-- ═══════ MODALS ═══════ -->
+<!-- Entity modal -->
+<div id="entity-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:540px;">
+    <div style="padding:20px 22px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="font-size:15px;font-weight:700;margin:0;" id="entity-modal-title">Nouvelle Entité</h3>
+      <button onclick="closeEntityModal()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:20px;">✕</button>
+    </div>
+    <div style="padding:20px 22px;">
+      <p style="font-size:12px;color:#9ca3af;margin:0 0 12px;">Champs libres (clé / valeur)</p>
+      <div id="entity-fields-container" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <button onclick="addEntityField()" style="background:none;border:none;cursor:pointer;color:#1B5EA6;font-size:13px;font-weight:600;margin-top:10px;padding:0;">+ Ajouter un champ</button>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="closeEntityModal()" style="flex:1;justify-content:center;">Annuler</button>
+      <button class="btn btn-primary" onclick="saveEntity()" style="flex:1;justify-content:center;">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Connection modal -->
+<div id="conn-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:520px;">
+    <div style="padding:20px 22px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="font-size:15px;font-weight:700;margin:0;" id="conn-modal-title">Nouvelle connexion DB</h3>
+      <button onclick="closeConnModal()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:20px;">✕</button>
+    </div>
+    <div style="padding:20px 22px;display:flex;flex-direction:column;gap:12px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Nom</label><input class="input" id="c-name" placeholder="Mon CRM"/></div>
+        <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Type</label>
+          <select class="select" id="c-type">
+            <option value="postgresql">PostgreSQL</option>
+            <option value="mysql">MySQL</option>
+            <option value="mariadb">MariaDB</option>
+            <option value="mssql">SQL Server</option>
+            <option value="oracle">Oracle</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;">
+        <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Hôte</label><input class="input" id="c-host" placeholder="localhost ou 192.168.1.x"/></div>
+        <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Port</label><input class="input" id="c-port" type="number" placeholder="5432"/></div>
+      </div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Nom de la base</label><input class="input" id="c-db" placeholder="ma_base"/></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Utilisateur</label><input class="input" id="c-user" placeholder="postgres"/></div>
+        <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Mot de passe</label><input class="input" id="c-pass" type="password" placeholder="••••••••"/></div>
+      </div>
+      <div id="conn-test-result" style="display:none;padding:10px 12px;border-radius:8px;font-size:13px;"></div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="closeConnModal()" style="flex:1;justify-content:center;">Annuler</button>
+      <button class="btn btn-warning" onclick="testCurrentConn()" style="flex:1;justify-content:center;">🔌 Tester</button>
+      <button class="btn btn-primary" onclick="saveConn()" style="flex:1;justify-content:center;">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Rule modal -->
+<div id="rule-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:520px;">
+    <div style="padding:20px 22px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="font-size:15px;font-weight:700;margin:0;" id="rule-modal-title">Nouvelle règle</h3>
+      <button onclick="closeRuleModal()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:20px;">✕</button>
+    </div>
+    <div style="padding:20px 22px;display:flex;flex-direction:column;gap:14px;">
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Nom de la règle</label><input class="input" id="r-name" placeholder="ex: Règle générale — valeur la plus complète"/></div>
+      <!-- Portée -->
+      <div>
+        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:6px;">📌 Portée de la règle</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <label onclick="document.getElementById('r-field').value='*';document.getElementById('r-field-custom-wrap').style.display='none'" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid #1B5EA6;border-radius:10px;cursor:pointer;background:#e8f0fb;" id="scope-all-label">
+            <input type="radio" name="r-scope" value="all" checked onchange="document.getElementById('r-field').value='*';document.getElementById('r-field-custom-wrap').style.display='none';this.closest('label').style.borderColor='#1B5EA6';this.closest('label').style.background='#e8f0fb';document.getElementById('scope-field-label').style.borderColor='#e5e7eb';document.getElementById('scope-field-label').style.background='#fff';"/>
+            <div><span style="font-size:13px;font-weight:700;color:#1B5EA6;">Tous les champs</span><br><span style="font-size:10px;color:#6b7280;">Règle générale par défaut</span></div>
+          </label>
+          <label onclick="document.getElementById('r-field-custom-wrap').style.display='block';document.getElementById('r-field').value=''" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid #e5e7eb;border-radius:10px;cursor:pointer;background:#fff;" id="scope-field-label">
+            <input type="radio" name="r-scope" value="field" onchange="document.getElementById('r-field-custom-wrap').style.display='block';document.getElementById('r-field').value='';this.closest('label').style.borderColor='#1B5EA6';this.closest('label').style.background='#e8f0fb';document.getElementById('scope-all-label').style.borderColor='#e5e7eb';document.getElementById('scope-all-label').style.background='#fff';"/>
+            <div><span style="font-size:13px;font-weight:700;color:#374151;">Champ spécifique</span><br><span style="font-size:10px;color:#6b7280;">Exception / override</span></div>
+          </label>
+        </div>
+        <div id="r-field-custom-wrap" style="display:none;margin-top:8px;">
+          <input class="input" id="r-field" placeholder="Nom du champ (ex: email, téléphone, nom…)" value="*"/>
+        </div>
+        <input type="hidden" id="r-field" value="*"/>
+      </div>
+      <!-- Stratégie -->
+      <div>
+        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:6px;">⚡ Stratégie de fusion</label>
+        <div style="display:flex;flex-direction:column;gap:6px;" id="r-strategy-cards">
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:2px solid #1B5EA6;border-radius:10px;cursor:pointer;background:#e8f0fb;" class="strat-label">
+            <input type="radio" name="r-strat" value="most_complete" checked onchange="updateStratStyle(this)"/>
+            <div><span style="font-size:12px;font-weight:700;">📏 Plus complet</span><br><span style="font-size:10px;color:#6b7280;">Prend la valeur la plus longue et détaillée</span></div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:2px solid #e5e7eb;border-radius:10px;cursor:pointer;" class="strat-label">
+            <input type="radio" name="r-strat" value="non_empty" onchange="updateStratStyle(this)"/>
+            <div><span style="font-size:12px;font-weight:700;">✅ Non vide</span><br><span style="font-size:10px;color:#6b7280;">Prend la première valeur qui n'est pas vide</span></div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:2px solid #e5e7eb;border-radius:10px;cursor:pointer;" class="strat-label">
+            <input type="radio" name="r-strat" value="source_priority" onchange="updateStratStyle(this);toggleSourcePriority()"/>
+            <div><span style="font-size:12px;font-weight:700;">📊 Priorité par source</span><br><span style="font-size:10px;color:#6b7280;">Préfère la source la plus fiable (CRM > ERP > Manuel…)</span></div>
+          </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:2px solid #e5e7eb;border-radius:10px;cursor:pointer;" class="strat-label">
+            <input type="radio" name="r-strat" value="longest" onchange="updateStratStyle(this)"/>
+            <div><span style="font-size:12px;font-weight:700;">📐 Plus long</span><br><span style="font-size:10px;color:#6b7280;">Garde la chaîne de caractères la plus longue</span></div>
+          </label>
+        </div>
+      </div>
+      <div id="source-priority-wrap" style="display:none;">
+        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Sources prioritaires (la 1ère a la priorité la plus haute)</label>
+        <input class="input" id="r-priority" placeholder="ex: CRM, ERP, API, Manuel"/>
+        <p style="font-size:11px;color:#9ca3af;margin:4px 0 0;">Séparez par des virgules. La 1ère source listée sera toujours préférée.</p>
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Actif</label>
+        <select class="select" id="r-active"><option value="1">✅ Oui</option><option value="0">❌ Non</option></select>
+      </div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="closeRuleModal()" style="flex:1;justify-content:center;">Annuler</button>
+      <button class="btn btn-primary" onclick="saveRule()" style="flex:1;justify-content:center;">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Merge modal -->
+<div id="merge-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:700px;">
+    <div style="padding:18px 22px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;">
+      <div>
+        <h3 style="font-size:15px;font-weight:700;margin:0;">Fusion → Golden Record</h3>
+        <p style="font-size:12px;color:#9ca3af;margin:2px 0 0;">Sélectionnez la valeur à conserver pour chaque champ</p>
+      </div>
+      <button onclick="closeMergeModal()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:20px;">✕</button>
+    </div>
+    <div style="padding:18px 22px 0;">
+      <div style="display:flex;gap:8px;margin-bottom:14px;">
+        <button class="btn btn-secondary" onclick="applyRulesPreview()" style="font-size:12px;">⚡ Appliquer les règles automatiquement</button>
+      </div>
+      <div id="merge-fields" style="display:flex;flex-direction:column;gap:10px;"></div>
+    </div>
+    <div style="padding:16px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;position:sticky;bottom:0;background:#fff;margin-top:14px;">
+      <button class="btn btn-secondary" onclick="closeMergeModal()" style="flex:1;justify-content:center;">Annuler</button>
+      <button class="btn btn-success" onclick="confirmMerge()" style="flex:1;justify-content:center;">✅ Créer le Golden Record</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Vessel Modal -->
+<div id="vessel-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:620px;">
+    <div style="padding:18px 22px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="font-size:15px;font-weight:700;margin:0;" id="vessel-modal-title">Nouveau navire</h3>
+      <button onclick="closeVesselModal()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:20px;">✕</button>
+    </div>
+    <div style="padding:18px 22px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div style="grid-column:span 2;"><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Nom du navire *</label><input class="input" id="v-name" placeholder="ex: Atlantic Star"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Numéro IMO *</label>
+        <div style="display:flex;gap:6px;">
+          <input class="input" id="v-imo" placeholder="IMO9321483" oninput="liveValidateIMO()"/>
+          <span id="imo-check" style="font-size:18px;line-height:36px;min-width:24px;"></span>
+        </div>
+        <p style="font-size:10px;color:#9ca3af;margin:2px 0 0;">Format : IMO + 7 chiffres</p>
+      </div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">MMSI</label>
+        <div style="display:flex;gap:6px;">
+          <input class="input" id="v-mmsi" placeholder="123456789" oninput="liveValidateMMSI()"/>
+          <span id="mmsi-check" style="font-size:18px;line-height:36px;min-width:24px;"></span>
+        </div>
+        <p style="font-size:10px;color:#9ca3af;margin:2px 0 0;">9 chiffres</p>
+      </div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Type de navire</label><select class="select" id="v-type"><option value="">— Sélectionner —</option></select></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Pavillon</label><select class="select" id="v-flag"><option value="">— Sélectionner —</option></select></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Jauge brute (GT)</label><input class="input" type="number" id="v-gt" placeholder="ex: 45000"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Port en lourd (DWT)</label><input class="input" type="number" id="v-dwt" placeholder="ex: 82000"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Année de construction</label><input class="input" type="number" id="v-year" placeholder="ex: 2018" min="1900" max="2030"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Société de classification</label><input class="input" id="v-class" placeholder="ex: Lloyd's Register, Bureau Veritas"/></div>
+      <div style="grid-column:span 2;"><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Opérateur</label><input class="input" id="v-operator" placeholder="ex: MSC, Maersk…"/></div>
+      <div style="grid-column:span 2;"><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Source</label><input class="input" id="v-source" placeholder="ex: Equasis, Lloyd's, Manuel"/></div>
+    </div>
+    <div id="vessel-modal-errors" style="display:none;margin:0 22px 12px;padding:10px 12px;background:#fee2e2;border-radius:8px;font-size:12px;color:#991b1b;"></div>
+    <div style="padding:14px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="closeVesselModal()" style="flex:1;justify-content:center;">Annuler</button>
+      <button class="btn btn-primary" onclick="saveVessel()" style="flex:1;justify-content:center;">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Owner Modal -->
+<div id="owner-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:540px;">
+    <div style="padding:18px 22px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="font-size:15px;font-weight:700;margin:0;" id="owner-modal-title">Nouvel armateur</h3>
+      <button onclick="closeOwnerModal()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:20px;">✕</button>
+    </div>
+    <div style="padding:18px 22px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div style="grid-column:span 2;"><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Nom de l'armateur *</label><input class="input" id="o-name" placeholder="ex: Mediterranean Shipping Company"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Type</label>
+        <select class="select" id="o-type">
+          <option value="Shipowner">Shipowner</option><option value="Operator">Operator</option>
+          <option value="Manager">Manager</option><option value="Charterer">Charterer</option><option value="Other">Other</option>
+        </select>
+      </div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Pays</label><select class="select" id="o-country"><option value="">— Sélectionner —</option></select></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Ville</label><input class="input" id="o-city" placeholder="ex: Genève"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Email contact</label><input class="input" id="o-email" type="email" placeholder="contact@armateur.com"/></div>
+      <div style="grid-column:span 2;"><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Adresse</label><input class="input" id="o-address" placeholder="Adresse complète"/></div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="closeOwnerModal()" style="flex:1;justify-content:center;">Annuler</button>
+      <button class="btn btn-primary" onclick="saveOwner()" style="flex:1;justify-content:center;">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Port Modal -->
+<div id="port-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:560px;">
+    <div style="padding:18px 22px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="font-size:15px;font-weight:700;margin:0;" id="port-modal-title">Nouveau port</h3>
+      <button onclick="closePortModal()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:20px;">✕</button>
+    </div>
+    <div style="padding:18px 22px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div style="grid-column:span 2;"><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Nom du port *</label><input class="input" id="p-name" placeholder="ex: Port de Casablanca"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">UN/LOCODE *</label>
+        <div style="display:flex;gap:6px;">
+          <input class="input" id="p-locode" placeholder="ex: MA AGD" style="text-transform:uppercase;" oninput="liveValidateLOCODE()"/>
+          <span id="locode-check" style="font-size:18px;line-height:36px;min-width:24px;"></span>
+        </div>
+        <p style="font-size:10px;color:#9ca3af;margin:2px 0 0;">2 lettres pays + 3 lettres/chiffres</p>
+      </div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Pays</label><select class="select" id="p-country"><option value="">— Sélectionner —</option></select></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Latitude</label><input class="input" type="number" id="p-lat" placeholder="ex: 33.6086" step="0.0001"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Longitude</label><input class="input" type="number" id="p-lon" placeholder="ex: -7.6328" step="0.0001"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Tirant d'eau max (m)</label><input class="input" type="number" id="p-draft" placeholder="ex: 14.5" step="0.1"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Taille max navire</label><input class="input" id="p-maxsize" placeholder="ex: Panamax, VLCC"/></div>
+      <div style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="p-tide"/><label style="font-size:13px;">Dépendant des marées</label></div>
+      <div style="display:flex;align-items:center;gap:8px;"><input type="checkbox" id="p-pilot" checked/><label style="font-size:13px;">Pilotage obligatoire</label></div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="closePortModal()" style="flex:1;justify-content:center;">Annuler</button>
+      <button class="btn btn-primary" onclick="savePort()" style="flex:1;justify-content:center;">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Port Call Modal -->
+<div id="call-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:600px;">
+    <div style="padding:18px 22px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="font-size:15px;font-weight:700;margin:0;" id="call-modal-title">Nouvelle escale</h3>
+      <button onclick="closeCallModal()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:20px;">✕</button>
+    </div>
+    <div style="padding:18px 22px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Navire (nom ou IMO)</label><input class="input" id="c-vessel" placeholder="Nom ou IMO9xxxxxxx"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Port (nom ou LOCODE)</label><input class="input" id="c-port" placeholder="Nom port ou MA AGD"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">ETA (arrivée prévue)</label><input class="input" type="datetime-local" id="c-eta"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">ETD (départ prévu)</label><input class="input" type="datetime-local" id="c-etd"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Statut</label>
+        <select class="select" id="c-status">
+          <option value="Planned">Planned</option><option value="In Transit">In Transit</option>
+          <option value="At Anchor">At Anchor</option><option value="Berthed">Berthed</option>
+          <option value="Departed">Departed</option><option value="Cancelled">Cancelled</option>
+        </select>
+      </div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Type de cargaison</label>
+        <select class="select" id="c-cargo">
+          <option value="">— Sélectionner —</option>
+          <option>Dry Bulk</option><option>Liquid Bulk</option><option>Container</option>
+          <option>Ro-Ro</option><option>General Cargo</option><option>Ballast</option><option>Other</option>
+        </select>
+      </div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Quantité (MT)</label><input class="input" type="number" id="c-qty" placeholder="ex: 45000"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Numéro de voyage</label><input class="input" id="c-voyage" placeholder="ex: V001W"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Terminal</label><input class="input" id="c-terminal" placeholder="ex: Terminal Minéralier"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Agent</label><input class="input" id="c-agent" placeholder="ex: Marsa Maroc"/></div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="closeCallModal()" style="flex:1;justify-content:center;">Annuler</button>
+      <button class="btn btn-primary" onclick="saveCall()" style="flex:1;justify-content:center;">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/js/maritime.js"></script>
+<script src="/static/js/app.js"></script>
+
+<!-- ═══════════════════ COPILOT IA ═══════════════════ -->
+<button id="copilot-toggle" onclick="toggleCopilot()" title="Copilot IA" style="position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#1B5EA6,#7c3aed);border:none;cursor:pointer;box-shadow:0 4px 20px rgba(27,94,166,.4);z-index:999;display:flex;align-items:center;justify-content:center;font-size:24px;transition:transform .2s;">🤖</button>
+
+<div id="copilot-panel" style="display:none;position:fixed;bottom:90px;right:24px;width:380px;height:520px;background:#fff;border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,.15);z-index:998;display:none;flex-direction:column;overflow:hidden;">
+  <!-- Header -->
+  <div style="padding:14px 16px;background:linear-gradient(135deg,#1B5EA6,#7c3aed);display:flex;align-items:center;justify-content:space-between;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:20px;">🤖</span>
+      <div>
+        <p style="font-size:14px;font-weight:700;color:#fff;margin:0;">Copilot MDM</p>
+        <p style="font-size:11px;color:rgba(255,255,255,.7);margin:0;">Assistant IA · O.S MDM V2</p>
+      </div>
+    </div>
+    <button onclick="toggleCopilot()" style="background:rgba(255,255,255,.2);border:none;cursor:pointer;color:#fff;width:28px;height:28px;border-radius:50%;font-size:14px;">✕</button>
+  </div>
+  <!-- Messages -->
+  <div id="copilot-messages" style="flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:10px;">
+    <div class="cop-msg cop-assistant">
+      <p style="margin:0;font-size:13px;">👋 Bonjour ! Je suis ton Copilot MDM. Je peux t'aider à :</p>
+      <ul style="margin:6px 0 0;padding-left:16px;font-size:12px;color:#4b5563;">
+        <li>Détecter et fusionner les doublons</li>
+        <li>Analyser tes données avec des graphiques</li>
+        <li>Guider les imports et exports</li>
+        <li>Répondre à tes questions sur les données</li>
+      </ul>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">
+        <button class="cop-chip" onclick="copilotSend('Combien de doublons avons-nous ?')">Doublons ?</button>
+        <button class="cop-chip" onclick="copilotSend('Montre-moi un graphique des sources')">Graphique sources</button>
+        <button class="cop-chip" onclick="copilotSend('Détecte les doublons sur le champ email')">Détecter doublons</button>
+        <button class="cop-chip" onclick="copilotSend('Résume l\'état de ma base')">État de la base</button>
+      </div>
+    </div>
+  </div>
+  <!-- Input -->
+  <div style="padding:10px 12px;border-top:1px solid #f3f4f6;display:flex;gap:8px;">
+    <input id="copilot-input" class="input" placeholder="Pose ta question…" style="flex:1;font-size:13px;" onkeydown="if(event.key==='Enter')copilotSend()"/>
+    <button onclick="copilotSend()" style="background:linear-gradient(135deg,#1B5EA6,#7c3aed);border:none;cursor:pointer;color:#fff;width:36px;height:36px;border-radius:8px;font-size:16px;display:flex;align-items:center;justify-content:center;">→</button>
+  </div>
+</div>
+
+<style>
+.cop-msg{padding:10px 12px;border-radius:12px;max-width:90%;font-size:13px;line-height:1.5;}
+.cop-user{background:#1B5EA6;color:#fff;align-self:flex-end;border-bottom-right-radius:4px;}
+.cop-assistant{background:#f3f4f6;color:#1f2937;align-self:flex-start;border-bottom-left-radius:4px;}
+.cop-chip{background:#e8f0fb;color:#1B5EA6;border:none;border-radius:20px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600;}
+.cop-chip:hover{background:#1B5EA6;color:#fff;}
+.cop-chart-container{width:100%;margin-top:8px;}
+</style>
+
+
+<!-- User Modal -->
+<div id="user-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:480px;">
+    <div style="padding:18px 22px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;">
+      <h3 style="font-size:15px;font-weight:700;margin:0;" id="user-modal-title">Nouvel utilisateur</h3>
+      <button onclick="closeUserModal()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:20px;">✕</button>
+    </div>
+    <div style="padding:18px 22px;display:flex;flex-direction:column;gap:12px;">
+      <div>
+        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Nom complet *</label>
+        <input class="input" id="um-name" placeholder="Jean Dupont"/>
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Email *</label>
+        <input class="input" id="um-email" placeholder="jean.dupont@company.com" type="email"/>
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Rôle</label>
+        <select class="select" id="um-role">
+          <option value="viewer">👁 Viewer — Lecture seule</option>
+          <option value="manager">📊 Manager — Lecture + actions MDM</option>
+          <option value="admin">⚙️ Admin — Accès complet</option>
+        </select>
+      </div>
+      <div id="um-password-wrap">
+        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Mot de passe</label>
+        <input class="input" id="um-password" type="password" placeholder="Laisser vide = changeme123"/>
+        <p style="font-size:10px;color:#9ca3af;margin:3px 0 0;">L'utilisateur devra le changer à sa première connexion</p>
+      </div>
+      <div id="um-active-wrap" style="display:none;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="um-active" checked style="width:16px;height:16px;"/>
+          <span style="font-size:13px;font-weight:600;color:#374151;">Compte actif</span>
+        </label>
+      </div>
+    </div>
+    <div id="user-modal-error" style="display:none;margin:0 22px 12px;padding:10px;background:#fee2e2;border-radius:8px;font-size:12px;color:#991b1b;"></div>
+    <div style="padding:14px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="closeUserModal()" style="flex:1;justify-content:center;">Annuler</button>
+      <button class="btn btn-primary" onclick="saveUser()" style="flex:1;justify-content:center;">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Migration Modal -->
+<div id="migration-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:680px;max-height:90vh;">
+    <div style="padding:16px 22px;border-bottom:1px solid #f3f4f6;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:#fff;z-index:1;">
+      <div>
+        <h3 style="font-size:15px;font-weight:700;margin:0;">⬆️ Migration Entités → Maritime</h3>
+        <p style="font-size:12px;color:#9ca3af;margin:3px 0 0;" id="mig-step-label">Étape 1 — Choisir la source</p>
+      </div>
+      <button onclick="closeMigrationModal()" style="background:none;border:none;cursor:pointer;color:#9ca3af;font-size:20px;">✕</button>
+    </div>
+
+    <!-- ÉTAPE 1 : Source + Type -->
+    <div id="mig-step-1" style="padding:18px 22px;display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Type de données à migrer</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" id="mig-type-cards">
+          <div class="mig-type-card active" onclick="selectMigType('vessel',this)" style="border:2px solid #1B5EA6;border-radius:10px;padding:12px;cursor:pointer;background:#e8f0fb;">
+            <p style="font-size:20px;margin:0 0 4px;">🚢</p>
+            <p style="font-size:13px;font-weight:700;margin:0;color:#1B5EA6;">Navires</p>
+            <p style="font-size:11px;color:#6b7280;margin:2px 0 0;">IMO, MMSI, pavillon, type...</p>
+          </div>
+          <div class="mig-type-card" onclick="selectMigType('port_call',this)" style="border:2px solid #e5e7eb;border-radius:10px;padding:12px;cursor:pointer;">
+            <p style="font-size:20px;margin:0 0 4px;">📍</p>
+            <p style="font-size:13px;font-weight:700;margin:0;color:#374151;">Escales</p>
+            <p style="font-size:11px;color:#6b7280;margin:2px 0 0;">ETA, ETD, port, cargaison...</p>
+          </div>
+          <div class="mig-type-card" onclick="selectMigType('owner',this)" style="border:2px solid #e5e7eb;border-radius:10px;padding:12px;cursor:pointer;">
+            <p style="font-size:20px;margin:0 0 4px;">🏢</p>
+            <p style="font-size:13px;font-weight:700;margin:0;color:#374151;">Armateurs</p>
+            <p style="font-size:11px;color:#6b7280;margin:2px 0 0;">Société, pays, contact...</p>
+          </div>
+          <div class="mig-type-card" onclick="selectMigType('port',this)" style="border:2px solid #e5e7eb;border-radius:10px;padding:12px;cursor:pointer;">
+            <p style="font-size:20px;margin:0 0 4px;">⚓</p>
+            <p style="font-size:13px;font-weight:700;margin:0;color:#374151;">Ports</p>
+            <p style="font-size:11px;color:#6b7280;margin:2px 0 0;">LOCODE, pays, terminal...</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Source à migrer</label>
+        <select class="select" id="mig-source-select">
+          <option value="">⏳ Chargement des sources…</option>
+        </select>
+        <p style="font-size:10px;color:#9ca3af;margin:3px 0 0;">Sources détectées automatiquement depuis vos entités MDM</p>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;margin:0 -22px -18px;">
+        <button class="btn btn-secondary" onclick="closeMigrationModal()" style="flex:1;justify-content:center;">Annuler</button>
+        <button class="btn btn-primary" onclick="goMigStep2()" style="flex:1;justify-content:center;">Suivant → Mapper les champs</button>
+      </div>
+    </div>
+
+    <!-- ÉTAPE 2 : Mapping des champs -->
+    <div id="mig-step-2" style="display:none;padding:18px 22px;flex-direction:column;gap:14px;">
+      <div style="background:#f0f9ff;border-radius:10px;padding:10px 14px;border-left:3px solid #0ea5e9;font-size:12px;color:#0369a1;">
+        Associez vos colonnes aux champs maritimes. Les champs marqués <b>*</b> sont obligatoires.
+      </div>
+      <div id="mig-mapping-table" style="display:flex;flex-direction:column;gap:8px;"></div>
+      <div style="padding:14px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;margin:0 -22px -18px;">
+        <button class="btn btn-secondary" onclick="goMigStep1()" style="flex:1;justify-content:center;">← Retour</button>
+        <button class="btn btn-primary" onclick="runMigrationWithMapping()" id="mig-btn" style="flex:1;justify-content:center;">⬆️ Lancer la migration</button>
+      </div>
+    </div>
+
+    <!-- RÉSULTAT -->
+    <div id="mig-step-result" style="display:none;padding:18px 22px;">
+      <div style="background:#f0fdf4;border-radius:10px;padding:16px;border-left:3px solid #22c55e;margin-bottom:14px;">
+        <p style="font-size:13px;color:#15803d;font-weight:700;margin:0 0 8px;">✅ Migration terminée</p>
+        <div id="mig-result-details" style="font-size:12px;color:#166534;line-height:1.8;"></div>
+      </div>
+      <button class="btn btn-primary" onclick="closeMigrationModal()" style="width:100%;justify-content:center;">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<!-- §WRITEBACK — MODAL CREATE/EDIT -->
+<div id="writeback-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:580px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:18px 22px;border-bottom:1px solid #f3f4f6;">
+      <h3 style="margin:0;font-size:15px;font-weight:700;" id="wb-modal-title">Nouvelle destination write-back</h3>
+      <button onclick="closeWritebackModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#9ca3af;">✕</button>
+    </div>
+    <div style="padding:18px 22px;display:flex;flex-direction:column;gap:12px;">
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Nom</label><input class="input" id="wb-name" placeholder="ex: Retour vers SQL Server Production"/></div>
+      <!-- Type de cible -->
+      <div>
+        <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:6px;">Type de destination</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <label id="wb-type-db-label" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid #1B5EA6;border-radius:10px;cursor:pointer;background:#e8f0fb;">
+            <input type="radio" name="wb-type" value="db" checked onchange="toggleWbType()"/>
+            <div><span style="font-size:12px;font-weight:700;">🗄️ Base de données</span><br><span style="font-size:10px;color:#6b7280;">SQL Server, PostgreSQL, MySQL…</span></div>
+          </label>
+          <label id="wb-type-api-label" style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid #e5e7eb;border-radius:10px;cursor:pointer;">
+            <input type="radio" name="wb-type" value="api" onchange="toggleWbType()"/>
+            <div><span style="font-size:12px;font-weight:700;">🔗 API REST</span><br><span style="font-size:10px;color:#6b7280;">Salesforce, SAP, Odoo…</span></div>
+          </label>
+        </div>
+      </div>
+      <!-- Cible DB -->
+      <div id="wb-db-fields">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+          <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Connexion DB</label>
+            <select class="select" id="wb-connection"><option value="">— Sélectionner —</option></select></div>
+          <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Table cible</label>
+            <input class="input" id="wb-table" placeholder="ex: dbo.clients_master"/></div>
+        </div>
+      </div>
+      <!-- Cible API -->
+      <div id="wb-api-fields" style="display:none;">
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px;">
+          <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Connecteur API</label>
+            <select class="select" id="wb-connector"><option value="">— Sélectionner —</option></select></div>
+          <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Méthode HTTP</label>
+            <select class="select" id="wb-method"><option value="POST">POST</option><option value="PUT">PUT</option><option value="PATCH">PATCH</option></select></div>
+        </div>
+        <div style="margin-top:8px;"><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Endpoint (vide = URL du connecteur)</label>
+          <input class="input" id="wb-endpoint" placeholder="https://api.example.com/v1/records"/></div>
+      </div>
+      <!-- Mode -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Mode d'écriture</label>
+          <select class="select" id="wb-mode">
+            <option value="upsert">Upsert (insert ou update)</option>
+            <option value="insert">Insert uniquement</option>
+            <option value="update">Update uniquement</option>
+          </select></div>
+        <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Clé de correspondance</label>
+          <input class="input" id="wb-match-key" placeholder="ex: email, imo_number"/></div>
+      </div>
+      <!-- Mapping -->
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Mapping des champs (JSON)</label>
+        <textarea class="input" id="wb-mapping" rows="3" placeholder='{"colonne_destination": "champ_golden_record"}' style="font-family:monospace;font-size:11px;resize:vertical;"></textarea>
+        <p style="font-size:10px;color:#9ca3af;margin:4px 0 0;">Clé = colonne dans la destination. Valeur = champ du Golden Record. Vide = tout envoyer tel quel.</p>
+      </div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="closeWritebackModal()" style="flex:1;justify-content:center;">Annuler</button>
+      <button class="btn btn-primary" onclick="saveWritebackConfig()" style="flex:1;justify-content:center;">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- §CONNECTEUR — MODAL CREATE/EDIT -->
+<div id="connector-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:600px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:18px 22px;border-bottom:1px solid #f3f4f6;">
+      <h3 style="margin:0;font-size:15px;font-weight:700;" id="connector-modal-title">Nouveau connecteur</h3>
+      <button onclick="closeConnectorModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#9ca3af;">✕</button>
+    </div>
+    <div style="padding:18px 22px;display:flex;flex-direction:column;gap:12px;">
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Nom</label><input class="input" id="cx-name" placeholder="Mon connecteur"/></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Type</label>
+          <select class="select" id="cx-type"><option value="rest_api">API REST</option><option value="erp">ERP / CRM</option></select></div>
+        <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Cible</label>
+          <select class="select" id="cx-target"><option value="entity">Entités génériques</option><option value="vessel">Navires maritimes</option></select></div>
+      </div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">URL de base</label><input class="input" id="cx-url" placeholder="https://api.example.com/v1/data"/></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Authentification</label>
+          <select class="select" id="cx-auth" onchange="toggleAuthFields()">
+            <option value="none">Aucune</option><option value="bearer">Bearer Token</option>
+            <option value="api_key">API Key (header)</option><option value="query_param">API Key (URL param)</option>
+            <option value="basic">Basic Auth</option>
+          </select></div>
+        <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Chemin données JSON</label><input class="input" id="cx-datapath" placeholder="data.results ou vide"/></div>
+      </div>
+      <!-- Auth fields dynamiques -->
+      <div id="cx-auth-fields" style="display:none;background:#f9fafb;border-radius:8px;padding:10px 12px;">
+        <div id="cx-auth-token" style="display:none;"><label style="font-size:11px;color:#6b7280;">Token / API Key</label><input class="input" id="cx-token" placeholder="votre-clé-ici" style="margin-top:4px;"/></div>
+        <div id="cx-auth-header" style="display:none;"><label style="font-size:11px;color:#6b7280;">Nom du header</label><input class="input" id="cx-header-name" value="X-API-Key" style="margin-top:4px;"/></div>
+        <div id="cx-auth-param" style="display:none;"><label style="font-size:11px;color:#6b7280;">Nom du paramètre URL</label><input class="input" id="cx-param-name" value="apikey" style="margin-top:4px;"/></div>
+        <div id="cx-auth-basic" style="display:none;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+          <div><label style="font-size:11px;color:#6b7280;">Utilisateur</label><input class="input" id="cx-basic-user"/></div>
+          <div><label style="font-size:11px;color:#6b7280;">Mot de passe</label><input class="input" id="cx-basic-pass" type="password"/></div>
+        </div></div>
+      </div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Synchro automatique (minutes, 0=désactivé)</label>
+        <input class="input" id="cx-interval" type="number" min="0" value="0" placeholder="0 = manuel uniquement"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Mapping des champs (JSON)</label>
+        <textarea class="input" id="cx-mapping" rows="3" placeholder='{"nom": "name", "email": "email"}' style="font-family:monospace;font-size:11px;resize:vertical;"></textarea>
+        <p style="font-size:10px;color:#9ca3af;margin:4px 0 0;">Clé = champ MDM, Valeur = champ API source. Vide = tout importer.</p>
+      </div>
+    </div>
+    <div style="padding:14px 22px;border-top:1px solid #f3f4f6;display:flex;gap:8px;">
+      <button class="btn btn-secondary" onclick="closeConnectorModal()" style="flex:1;justify-content:center;">Annuler</button>
+      <button class="btn btn-primary" onclick="saveConnector()" style="flex:1;justify-content:center;">💾 Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- §4.5 MODAL 360° NAVIRE -->
+<div id="vessel-360-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:800px;max-height:90vh;overflow-y:auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:18px 22px;border-bottom:1px solid #f3f4f6;">
+      <h3 style="margin:0;font-size:16px;font-weight:700;" id="v360-title">🚢 Vue 360°</h3>
+      <button onclick="document.getElementById('vessel-360-modal').style.display='none'" style="background:none;border:none;font-size:20px;cursor:pointer;color:#9ca3af;">✕</button>
+    </div>
+    <div id="v360-content" style="padding:18px 22px;">
+      <p style="color:#9ca3af;">Chargement…</p>
+    </div>
+  </div>
+</div>
+
+<!-- §6.2 ASYNC IMPORT PROGRESS -->
+<div id="async-import-modal" class="modal-bg" style="display:none;">
+  <div class="modal" style="max-width:400px;">
+    <div style="padding:22px;text-align:center;">
+      <p style="font-size:14px;font-weight:700;margin:0 0 12px;">📤 Import en cours…</p>
+      <div style="background:#f3f4f6;border-radius:99px;height:8px;margin-bottom:8px;">
+        <div id="async-progress-bar" style="background:#1B5EA6;height:8px;border-radius:99px;width:0%;transition:width .3s;"></div>
+      </div>
+      <p id="async-progress-text" style="font-size:12px;color:#6b7280;margin:0;">0%</p>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

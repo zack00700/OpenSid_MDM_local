@@ -1,0 +1,18 @@
+# Database
+data/mdm.db
+data/mdm.db-shm
+data/mdm.db-wal
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Uploads
+uploads/*
+!uploads/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
