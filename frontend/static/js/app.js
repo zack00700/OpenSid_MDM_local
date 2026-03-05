@@ -924,23 +924,57 @@ async function openWritebackModal(config=null) {
   currentWbId = config?.id || null;
   document.getElementById('wb-modal-title').textContent = config ? 'Modifier destination' : 'Nouvelle destination';
   document.getElementById('wb-name').value = config?.name || '';
-  document.getElementById('wb-table').value = config?.target_table || '';
   document.getElementById('wb-endpoint').value = config?.api_endpoint || '';
   document.getElementById('wb-method').value = config?.api_method || 'POST';
   document.getElementById('wb-mode').value = config?.mode || 'upsert';
   document.getElementById('wb-match-key').value = config?.match_key || '';
   document.getElementById('wb-mapping').value = config?.field_mapping ? JSON.stringify(config.field_mapping, null, 2) : '';
-  // Radio
   const isApi = config?.target_type === 'api';
   document.querySelector(`input[name="wb-type"][value="${isApi?'api':'db'}"]`).checked = true;
   toggleWbType();
-  // Charger les cibles disponibles
-  const targets = await api('/writeback/targets');
+  // Charger TOUTES les connexions DB (pas juste status=ok)
+  const allConns = await api('/connections');
   const dbSel = document.getElementById('wb-connection');
-  dbSel.innerHTML = '<option value="">— Sélectionner —</option>' + (targets?.databases||[]).map(d => `<option value="${d.id}" ${config?.connection_id===d.id?'selected':''}>${esc(d.name)} (${d.db_type})</option>`).join('');
+  const dbTypeIcons = { postgresql:'🐘', mysql:'🐬', mariadb:'🐬', mssql:'🔷', oracle:'🔶', sqlite:'📁' };
+  dbSel.innerHTML = '<option value="">— Sélectionner une connexion —</option>' +
+    (allConns||[]).map(d => {
+      const icon = dbTypeIcons[(d.db_type||'').toLowerCase()] || '🗄️';
+      const statusTag = d.status === 'ok' ? '✅' : d.status === 'error' ? '❌' : '⏳';
+      return `<option value="${d.id}" ${config?.connection_id===d.id?'selected':''}>${icon} ${esc(d.name)} (${(d.db_type||'').toUpperCase()}) ${statusTag}</option>`;
+    }).join('');
+  // Charger les connecteurs API
+  const targets = await api('/writeback/targets');
   const apiSel = document.getElementById('wb-connector');
   apiSel.innerHTML = '<option value="">— Sélectionner —</option>' + (targets?.api_connectors||[]).map(a => `<option value="${a.id}" ${config?.connector_id===a.id?'selected':''}>${esc(a.name)}</option>`).join('');
+  // Si une connexion est déjà sélectionnée, charger ses tables
+  const tableSel = document.getElementById('wb-table');
+  tableSel.innerHTML = '<option value="">— Choisir une connexion d\'abord —</option>';
+  if (config?.connection_id) {
+    await loadWbTables(config.target_table);
+  }
   document.getElementById('writeback-modal').style.display = 'flex';
+}
+
+async function loadWbTables(preselect) {
+  const connId = document.getElementById('wb-connection').value;
+  const tableSel = document.getElementById('wb-table');
+  const statusEl = document.getElementById('wb-table-status');
+  if (!connId) {
+    tableSel.innerHTML = '<option value="">— Choisir une connexion d\'abord —</option>';
+    if (statusEl) statusEl.textContent = '';
+    return;
+  }
+  tableSel.innerHTML = '<option value="">⏳ Chargement des tables…</option>';
+  if (statusEl) statusEl.textContent = 'Connexion en cours…';
+  const res = await api(`/connections/${connId}/tables`);
+  if (!res?.tables) {
+    tableSel.innerHTML = '<option value="">❌ Erreur — connexion impossible</option>';
+    if (statusEl) statusEl.textContent = 'Vérifiez que la connexion est active.';
+    return;
+  }
+  tableSel.innerHTML = '<option value="">— Sélectionner une table —</option>' +
+    res.tables.map(t => `<option value="${esc(t)}" ${t===(preselect||'') ? 'selected':''}>${esc(t)}</option>`).join('');
+  if (statusEl) statusEl.textContent = `${res.tables.length} table(s) trouvée(s)`;
 }
 function closeWritebackModal() { document.getElementById('writeback-modal').style.display='none'; currentWbId=null; }
 

@@ -1218,9 +1218,10 @@
       <div id="wb-db-fields">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Connexion DB</label>
-            <select class="select" id="wb-connection"><option value="">— Sélectionner —</option></select></div>
+            <select class="select" id="wb-connection" onchange="loadWbTables()"><option value="">— Sélectionner —</option></select></div>
           <div><label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">Table cible</label>
-            <input class="input" id="wb-table" placeholder="ex: dbo.clients_master"/></div>
+            <select class="select" id="wb-table"><option value="">— Choisir une connexion d'abord —</option></select>
+            <p id="wb-table-status" style="font-size:10px;color:#9ca3af;margin:4px 0 0;"></p></div>
         </div>
       </div>
       <!-- Cible API -->
