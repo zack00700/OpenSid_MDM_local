@@ -39,7 +39,11 @@ function toast(msg,type='success'){const t=document.createElement('div');const c
 async function api(path,opts={}){
   try{
     const res=await fetch(API+path,{headers:{'Content-Type':'application/json','Authorization':`Bearer ${TOKEN}`,...opts.headers},...opts});
-    if(res.status===401){logout();return null;}
+    if(res.status===401){
+      // Ne pas logout sur les appels premium en background
+      if(path.includes('/premium/notifications')) return null;
+      logout();return null;
+    }
     const data=await res.json();
     if(!res.ok&&data.error){toast(data.error,'error');return null;}
     return data;
@@ -66,10 +70,16 @@ async function login(){
   TOKEN=res.token;localStorage.setItem('mdm_token',TOKEN);currentUser=res.user;initApp();
 }
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.getElementById('login-page').style.display!=='none')login();});
-function logout(){TOKEN='';localStorage.removeItem('mdm_token');document.getElementById('login-page').style.display='flex';document.getElementById('app-page').style.display='none';}
+function logout(){TOKEN='';localStorage.removeItem('mdm_token');if(_notifInterval){clearInterval(_notifInterval);_notifInterval=null;}document.getElementById('login-page').style.display='flex';document.getElementById('app-page').style.display='none';}
 
 async function initApp(){
-  const me=await api('/auth/me');if(!me)return;
+  const me=await api('/auth/me');
+  if(!me){
+    // Token invalide — nettoyer et montrer le login
+    TOKEN='';localStorage.removeItem('mdm_token');
+    showLogin();
+    return;
+  }
   currentUser=me;
   document.getElementById('login-page').style.display='none';
   document.getElementById('app-page').style.display='flex';
