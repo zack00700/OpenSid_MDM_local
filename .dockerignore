@@ -1,0 +1,13 @@
+.git
+.gitignore
+__pycache__
+*.pyc
+.DS_Store
+.env
+*.db
+*.db-shm
+*.db-wal
+tests/
+pytest.ini
+.github/
+README.md

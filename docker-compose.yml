@@ -1,0 +1,38 @@
+# ═══════════════════════════════════════════════════
+# O.S MDM V2 — Docker Compose
+# Démarrer : docker compose up -d
+# Arrêter  : docker compose down
+# Logs     : docker compose logs -f
+# ═══════════════════════════════════════════════════
+
+version: '3.8'
+
+services:
+  mdm:
+    build: .
+    container_name: osmdm-v2
+    ports:
+      - "3000:3000"
+      - "5001:5001"
+    environment:
+      - MDM_SECRET=${MDM_SECRET:-}
+      - MDM_CORS_ORIGINS=${MDM_CORS_ORIGINS:-http://127.0.0.1:3000,http://localhost:3000}
+      - MDM_DEBUG=${MDM_DEBUG:-false}
+      - MDM_DB_ENGINE=${MDM_DB_ENGINE:-sqlite}
+      - MDM_ENCRYPT_KEY=${MDM_ENCRYPT_KEY:-}
+    volumes:
+      - mdm-data:/app/data
+      - mdm-uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5001/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  mdm-data:
+    driver: local
+  mdm-uploads:
+    driver: local

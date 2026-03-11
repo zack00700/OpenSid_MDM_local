@@ -5,24 +5,97 @@ Nouvelles fonctionnalités :
   - Reporting / BI (KPIs, graphiques, tableaux croisés)
   - Règles de fusion Golden Record configurables
   - Audit trail
+  - Sécurité renforcée (bcrypt, rate limiting, CORS, logging)
 """
 
-import os, json, uuid, hashlib, hmac, csv, sqlite3, time
-import jwt, pandas as pd
+import os, json, uuid, hashlib, hmac, csv, sqlite3, time, re, logging, secrets
+import jwt, pandas as pd, bcrypt
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from flask import Flask, request, jsonify, g, Response
 from io import StringIO, BytesIO
 from maritime import maritime_bp, MARITIME_SCHEMA
+from premium import premium_bp, init_premium_tables, fire_event, save_golden_record_version, compute_quality_score
+
+# ── LOGGING STRUCTURÉ ────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger('osmdm')
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 DB_PATH    = os.path.join(BASE_DIR, '..', 'data', 'mdm.db')
 UPLOAD_DIR = os.path.join(BASE_DIR, '..', 'uploads')
-SECRET_KEY = os.environ.get('MDM_SECRET', 'os-mdm-v2-secret-change-in-prod')
+
+# ── §SEC-1 : SECRET KEY OBLIGATOIRE VIA ENV ──────────
+# En production, TOUJOURS définir MDM_SECRET dans l'environnement
+# En dev/local, on génère un secret aléatoire si non défini (plus de valeur hardcodée)
+_env_secret = os.environ.get('MDM_SECRET', '')
+if _env_secret:
+    SECRET_KEY = _env_secret
+else:
+    SECRET_KEY = secrets.token_hex(32)
+    logger.warning("⚠️  MDM_SECRET non défini — secret aléatoire généré (sessions perdues au redémarrage)")
+    logger.warning("   Définissez MDM_SECRET dans vos variables d'environnement pour la production")
+
+# ── §SEC-2 : CORS CONFIGURABLE ──────────────────────
+ALLOWED_ORIGINS = os.environ.get('MDM_CORS_ORIGINS', 'http://127.0.0.1:3000,http://localhost:3000').split(',')
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024
 app.config['DB_PATH'] = DB_PATH
+
+# ── §SEC-3 : RATE LIMITING ──────────────────────────
+_rate_limits = {}  # { ip: { endpoint: [timestamps] } }
+RATE_LIMIT_CONFIG = {
+    '/api/auth/login': {'max': 5, 'window': 60},     # 5 tentatives / minute
+    '/api/auth/google/callback': {'max': 10, 'window': 60},
+    '/api/auth/microsoft/callback': {'max': 10, 'window': 60},
+    'default': {'max': 100, 'window': 60},             # 100 req / minute par défaut
+}
+
+def check_rate_limit():
+    """Vérifie le rate limit avant chaque requête"""
+    ip = request.remote_addr
+    path = request.path
+    now = time.time()
+    config = RATE_LIMIT_CONFIG.get(path, RATE_LIMIT_CONFIG['default'])
+    if ip not in _rate_limits:
+        _rate_limits[ip] = {}
+    if path not in _rate_limits[ip]:
+        _rate_limits[ip][path] = []
+    # Nettoyer les vieilles entrées
+    _rate_limits[ip][path] = [t for t in _rate_limits[ip][path] if now - t < config['window']]
+    if len(_rate_limits[ip][path]) >= config['max']:
+        logger.warning(f"Rate limit dépassé : {ip} sur {path}")
+        return True
+    _rate_limits[ip][path].append(now)
+    return False
+
+# ── §SEC-4 : VALIDATION SQL IDENTIFIERS ─────────────
+_SQL_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]{0,127}$')
+
+def validate_sql_identifier(name, label='identifiant'):
+    """Valide qu'un nom de table/colonne est safe pour SQL"""
+    if not name or not _SQL_IDENTIFIER_RE.match(name):
+        raise ValueError(f"{label} invalide : '{name}' — seuls lettres, chiffres et _ sont autorisés")
+    # Liste noire de mots SQL réservés dangereux
+    if name.upper() in ('DROP', 'DELETE', 'INSERT', 'UPDATE', 'ALTER', 'CREATE', 'EXEC', 'EXECUTE', 'UNION', 'SELECT'):
+        raise ValueError(f"{label} interdit : '{name}' est un mot réservé SQL")
+    return name
+
+def quote_identifier(name, db_type):
+    """Quote un identifiant SQL de manière sécurisée après validation"""
+    validate_sql_identifier(name)
+    db_type = (db_type or '').lower()
+    if db_type in ('mysql', 'mariadb'):
+        return f'`{name}`'
+    elif db_type == 'mssql':
+        return f'[{name}]'
+    else:  # postgresql, sqlite, oracle
+        return f'"{name}"'
 
 # ── §6.3 CACHE SIMPLE ────────────────────────
 _cache = {}
@@ -34,46 +107,95 @@ def set_cache(key, val, ttl=30):
     _cache[key] = {'v': val, 't': time.time()}
     return val
 app.register_blueprint(maritime_bp, url_prefix='/api/maritime')
+app.register_blueprint(premium_bp, url_prefix='/api/premium')
 
 @app.after_request
 def cors(r):
-    origin = request.headers.get('Origin', '*')
-    r.headers['Access-Control-Allow-Origin']  = origin
+    origin = request.headers.get('Origin', '')
+    if origin in ALLOWED_ORIGINS or '*' in ALLOWED_ORIGINS:
+        r.headers['Access-Control-Allow-Origin'] = origin or ALLOWED_ORIGINS[0]
+    else:
+        r.headers['Access-Control-Allow-Origin'] = ALLOWED_ORIGINS[0]
     r.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
     r.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
     r.headers['Access-Control-Allow-Credentials'] = 'true'
+    # ── §SEC-5 : SECURITY HEADERS ──────────────────
+    r.headers['X-Content-Type-Options'] = 'nosniff'
+    r.headers['X-Frame-Options'] = 'DENY'
+    r.headers['X-XSS-Protection'] = '1; mode=block'
+    r.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    r.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://accounts.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' http://127.0.0.1:* http://localhost:*"
     return r
 
 @app.before_request
-def options_handler():
+def before_request_handler():
+    # OPTIONS pre-flight
     if request.method == 'OPTIONS':
         r = Response(); r.status_code = 204
-        origin = request.headers.get('Origin', '*')
-        r.headers['Access-Control-Allow-Origin']  = origin
+        origin = request.headers.get('Origin', '')
+        if origin in ALLOWED_ORIGINS or '*' in ALLOWED_ORIGINS:
+            r.headers['Access-Control-Allow-Origin'] = origin or ALLOWED_ORIGINS[0]
         r.headers['Access-Control-Allow-Headers'] = 'Content-Type,Authorization'
         r.headers['Access-Control-Allow-Methods'] = 'GET,POST,PUT,DELETE,OPTIONS'
         r.headers['Access-Control-Allow-Credentials'] = 'true'
         return r
+    # Rate limiting
+    if check_rate_limit():
+        return jsonify({'error': 'Trop de requêtes — réessayez dans quelques secondes'}), 429
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-# ── PASSWORD ──────────────────────────────────
+# ── PASSWORD (bcrypt) ────────────────────────
 def hash_pw(pwd):
-    salt = os.urandom(16).hex()
-    h = hashlib.sha256((salt+pwd).encode()).hexdigest()
-    return f"{salt}:{h}"
+    """Hash un mot de passe avec bcrypt (sécurisé, avec salt intégré)"""
+    return bcrypt.hashpw(pwd.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
 
 def check_pw(pwd, stored):
+    """Vérifie un mot de passe — supporte bcrypt ET l'ancien format SHA-256 (migration)"""
     try:
-        salt, h = stored.split(':', 1)
-        return hmac.compare_digest(h, hashlib.sha256((salt+pwd).encode()).hexdigest())
-    except: return False
+        if stored.startswith('$2b$') or stored.startswith('$2a$'):
+            # Format bcrypt
+            return bcrypt.checkpw(pwd.encode('utf-8'), stored.encode('utf-8'))
+        else:
+            # Ancien format SHA-256 (rétrocompatibilité migration)
+            salt, h = stored.split(':', 1)
+            return hmac.compare_digest(h, hashlib.sha256((salt+pwd).encode()).hexdigest())
+    except Exception:
+        logger.error("Erreur vérification mot de passe")
+        return False
 
 # ── DATABASE ──────────────────────────────────
 # §6.1 — Abstraction DB : PostgreSQL-ready
 DB_ENGINE = os.environ.get('MDM_DB_ENGINE', 'sqlite')  # 'sqlite' ou 'postgresql'
 PG_URL = os.environ.get('MDM_PG_URL', '')  # ex: postgresql://user:pass@host:5432/mdm
+
+# ── §SEC-6 : CHIFFREMENT DES CREDENTIALS DB ─────────
+from base64 import b64encode, b64decode
+
+_ENCRYPT_KEY = os.environ.get('MDM_ENCRYPT_KEY', '')
+if not _ENCRYPT_KEY:
+    # Dériver une clé de chiffrement du SECRET_KEY (déterministe pour que les données restent lisibles)
+    _ENCRYPT_KEY = hashlib.sha256(SECRET_KEY.encode()).hexdigest()[:32]
+
+def encrypt_credential(plaintext):
+    """Chiffrement simple XOR + base64 pour les credentials stockés en DB"""
+    if not plaintext:
+        return ''
+    key = _ENCRYPT_KEY.encode()
+    encrypted = bytes(b ^ key[i % len(key)] for i, b in enumerate(plaintext.encode('utf-8')))
+    return 'ENC:' + b64encode(encrypted).decode()
+
+def decrypt_credential(stored):
+    """Déchiffre un credential stocké"""
+    if not stored:
+        return ''
+    if not stored.startswith('ENC:'):
+        return stored  # Rétrocompatibilité : ancien format en clair
+    key = _ENCRYPT_KEY.encode()
+    encrypted = b64decode(stored[4:])
+    decrypted = bytes(b ^ key[i % len(key)] for i, b in enumerate(encrypted))
+    return decrypted.decode('utf-8')
 
 def sql_now():
     """Retourne la fonction SQL pour datetime courante (compatible SQLite et PostgreSQL)"""
@@ -308,6 +430,12 @@ def init_db():
             except: pass
     db.commit(); db.close()
 
+    # ── PREMIUM TABLES ──
+    db2 = sqlite3.connect(DB_PATH)
+    init_premium_tables(db2)
+    db2.close()
+    logger.info("Tables premium initialisées")
+
 def audit(action, entity_type, entity_id, details=None):
     try:
         db = get_db()
@@ -327,7 +455,8 @@ def token_required(f):
             g.current_user = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             return jsonify({'error':'Token expiré'}), 401
-        except: return jsonify({'error':'Token invalide'}), 401
+        except Exception:
+            return jsonify({'error':'Token invalide'}), 401
         return f(*a, **kw)
     return dec
 
@@ -336,14 +465,27 @@ def login():
     b = request.json or {}
     email = b.get('email','').strip().lower()
     pwd   = b.get('password','')
+    if not email or not pwd:
+        return jsonify({'error':'Email et mot de passe requis'}), 400
     db = get_db()
     u = db.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
     if not u or not check_pw(pwd, u['password']):
+        logger.warning(f"Tentative de login échouée pour '{email}' depuis {request.remote_addr}")
         return jsonify({'error':'Identifiants invalides'}), 401
+    # §SEC-7 : Migration auto des anciens hashes SHA-256 vers bcrypt
+    if not u['password'].startswith('$2b$') and not u['password'].startswith('$2a$'):
+        new_hash = hash_pw(pwd)
+        db.execute("UPDATE users SET password=? WHERE id=?", (new_hash, u['id']))
+        db.commit()
+        logger.info(f"Mot de passe migré vers bcrypt pour {email}")
+    # Mettre à jour last_login
+    db.execute("UPDATE users SET last_login=datetime('now') WHERE id=?", (u['id'],))
+    db.commit()
     token = jwt.encode({
         'user_id': u['id'], 'email': u['email'], 'role': u['role'],
         'exp': datetime.now(timezone.utc) + timedelta(hours=12)
     }, SECRET_KEY, algorithm='HS256')
+    logger.info(f"Login réussi : {email}")
     return jsonify({'token': token, 'user': {'id':u['id'],'email':u['email'],'name':u['name'],'role':u['role']}})
 
 @app.route('/api/auth/me', methods=['GET'])
@@ -446,6 +588,7 @@ def import_csv():
                    (total, imported, errors, log_id))
         db.commit()
         audit('import', 'import_log', log_id, {'file': file.filename, 'imported': imported})
+        fire_event('import_done', {'message': f"{imported} lignes importées depuis {file.filename}", 'imported': imported, 'errors': errors})
         return jsonify({'log_id':log_id,'total':total,'imported':imported,'errors':errors})
     except Exception as e:
         db.execute("UPDATE import_logs SET status='error' WHERE id=?", (log_id,))
@@ -547,7 +690,7 @@ def _make_conn(info):
     p = info.get('port')
     db_name = info.get('database_name','')
     user = info.get('username','')
-    pwd  = info.get('password','')
+    pwd  = decrypt_credential(info.get('password',''))  # §SEC-6 : Déchiffrer
     if db_type == 'postgresql':
         import psycopg2
         return psycopg2.connect(host=h, port=p or 5432, dbname=db_name, user=user, password=pwd, connect_timeout=10)
@@ -576,10 +719,13 @@ def list_connections():
 def create_connection():
     b = request.json or {}
     cid = str(uuid.uuid4())
+    # §SEC-6 : Chiffrer le mot de passe avant stockage
+    encrypted_pwd = encrypt_credential(b.get('password',''))
     get_db().execute("INSERT INTO db_connections(id,name,db_type,host,port,database_name,username,password,status) VALUES(?,?,?,?,?,?,?,?,'untested')",
                (cid, b.get('name'), b.get('db_type'), b.get('host'), b.get('port'),
-                b.get('database_name'), b.get('username'), b.get('password','')))
+                b.get('database_name'), b.get('username'), encrypted_pwd))
     get_db().commit()
+    audit('create', 'db_connection', cid, {'name': b.get('name')})
     return jsonify({'id': cid}), 201
 
 @app.route('/api/connections/<cid>', methods=['PUT'])
@@ -587,9 +733,10 @@ def create_connection():
 def update_connection(cid):
     b = request.json or {}
     db = get_db()
+    encrypted_pwd = encrypt_credential(b.get('password',''))
     db.execute("UPDATE db_connections SET name=?,db_type=?,host=?,port=?,database_name=?,username=?,password=? WHERE id=?",
                (b.get('name'), b.get('db_type'), b.get('host'), b.get('port'),
-                b.get('database_name'), b.get('username'), b.get('password',''), cid))
+                b.get('database_name'), b.get('username'), encrypted_pwd, cid))
     db.commit()
     return jsonify({'message':'Mis à jour'})
 
@@ -644,6 +791,8 @@ def list_tables(cid):
         return jsonify({'error': str(e)}), 400
 
 def _select_with_limit(db_type: str, table: str, limit: int) -> str:
+    validate_sql_identifier(table, 'Nom de table')  # §SEC-4 : Validation
+    limit = int(limit)  # Forcer int
     db_type = (db_type or "").lower()
     if db_type == "mssql":
         return f"SELECT TOP ({limit}) * FROM [{table}]"
@@ -1122,6 +1271,8 @@ def detect_duplicates():
                        (str(uuid.uuid4()),e1id,e2id,score,meth)); found+=1
         except: pass
     db.commit()
+    if found > 0:
+        fire_event('duplicates_found', {'message': f"{found} paire(s) de doublons détectée(s) ({method})", 'found': found, 'method': method})
     return jsonify({'found':found,'method':method})
 
 @app.route('/api/duplicates', methods=['GET'])
@@ -1256,6 +1407,10 @@ def merge_entities():
     _cache.pop('dashboard_stats', None)
     _cache.pop('reporting_overview', None)
     audit('merge','golden_record',gid,{'sources':entity_ids})
+    # Premium : versioning + notification
+    save_golden_record_version(db, gid, {}, merged_data, g.current_user.get('email', 'system'))
+    db.commit()
+    fire_event('golden_record_created', {'message': f"Golden Record {mid} créé à partir de {len(entity_ids)} entités", 'mdm_id': mid})
     return jsonify({'golden_record_id':gid,'mdm_id':mid}),201
 
 @app.route('/api/golden-records', methods=['GET'])
@@ -1424,9 +1579,11 @@ def admin_required(f):
         try:
             payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256'])
             if payload.get('role') != 'admin':
+                logger.warning(f"Accès admin refusé pour {payload.get('email','?')}")
                 return jsonify({'error':'Accès réservé aux admins'}), 403
             g.current_user = payload
-        except: return jsonify({'error':'Token invalide'}), 401
+        except Exception:
+            return jsonify({'error':'Token invalide'}), 401
         return f(*a, **kw)
     return dec
 
@@ -1661,16 +1818,28 @@ def _writeback_to_db(config, records, dry_run=False):
     if not table:
         conn.close()
         return {'error': 'Table cible non définie'}
+    # §SEC-4 : Valider le nom de table
+    try:
+        validate_sql_identifier(table, 'Table cible')
+    except ValueError as e:
+        conn.close()
+        return {'error': str(e)}
     mapping = config.get('field_mapping', {})
     if isinstance(mapping, str):
         try: mapping = json.loads(mapping)
         except: mapping = {}
     mode = config.get('mode', 'insert')
     match_key = config.get('match_key', '')
+    if match_key:
+        try:
+            validate_sql_identifier(match_key, 'Clé de correspondance')
+        except ValueError as e:
+            conn.close()
+            return {'error': str(e)}
     db_type = conn_row['db_type'].lower()
     success = 0; errors = 0; error_msgs = []
-    # Dry-run : on trace les actions sans les exécuter
-    preview = []  # Liste des actions simulées
+    preview = []
+    tbl = quote_identifier(table, db_type)
     for rec in records:
         mapped = {}
         if mapping:
@@ -1678,15 +1847,21 @@ def _writeback_to_db(config, records, dry_run=False):
                 mapped[db_col] = rec.get(mdm_field, '')
         else:
             mapped = {k: v for k, v in rec.items() if not k.startswith('_gr_')}
+        # §SEC-4 : Valider chaque nom de colonne
+        try:
+            for col_name in mapped.keys():
+                validate_sql_identifier(col_name, 'Colonne')
+        except ValueError as e:
+            errors += 1
+            error_msgs.append(str(e))
+            continue
         cols = list(mapped.keys())
         vals = list(mapped.values())
         try:
             if mode == 'upsert' and match_key and match_key in mapped:
-                check_sql = f'SELECT COUNT(*) FROM "{table}" WHERE "{match_key}" = ?'
-                if db_type in ('mysql','mariadb'):
-                    check_sql = f"SELECT COUNT(*) FROM `{table}` WHERE `{match_key}` = %s"
-                elif db_type == 'mssql':
-                    check_sql = f"SELECT COUNT(*) FROM [{table}] WHERE [{match_key}] = ?"
+                mk_quoted = quote_identifier(match_key, db_type)
+                ph = '%s' if db_type in ('mysql','mariadb') else '?'
+                check_sql = f'SELECT COUNT(*) FROM {tbl} WHERE {mk_quoted} = {ph}'
                 cur.execute(check_sql, (mapped[match_key],))
                 exists = cur.fetchone()[0] > 0
                 action = 'UPDATE' if exists else 'INSERT'
@@ -1695,28 +1870,24 @@ def _writeback_to_db(config, records, dry_run=False):
                     success += 1
                 else:
                     if exists:
-                        set_clause = ', '.join(
-                            f'`{c}` = %s' if db_type in ('mysql','mariadb')
-                            else f'[{c}] = ?' if db_type == 'mssql'
-                            else f'"{c}" = ?' for c in cols if c != match_key)
-                        where_clause = (f'`{match_key}` = %s' if db_type in ('mysql','mariadb')
-                                        else f'[{match_key}] = ?' if db_type == 'mssql'
-                                        else f'"{match_key}" = ?')
-                        update_vals = [v for c, v in zip(cols, vals) if c != match_key] + [mapped[match_key]]
-                        tbl = f'`{table}`' if db_type in ('mysql','mariadb') else f'[{table}]' if db_type == 'mssql' else f'"{table}"'
-                        cur.execute(f"UPDATE {tbl} SET {set_clause} WHERE {where_clause}", update_vals)
+                        set_parts = []
+                        update_vals = []
+                        for c, v in zip(cols, vals):
+                            if c != match_key:
+                                set_parts.append(f'{quote_identifier(c, db_type)} = {ph}')
+                                update_vals.append(v)
+                        update_vals.append(mapped[match_key])
+                        set_clause = ', '.join(set_parts)
+                        cur.execute(f"UPDATE {tbl} SET {set_clause} WHERE {mk_quoted} = {ph}", update_vals)
                     else:
-                        placeholders = ', '.join(['%s'] * len(cols)) if db_type in ('mysql','mariadb') else ', '.join(['?'] * len(cols))
-                        col_list = ', '.join(f'`{c}`' if db_type in ('mysql','mariadb') else f'[{c}]' if db_type == 'mssql' else f'"{c}"' for c in cols)
-                        tbl = f'`{table}`' if db_type in ('mysql','mariadb') else f'[{table}]' if db_type == 'mssql' else f'"{table}"'
+                        placeholders = ', '.join([ph] * len(cols))
+                        col_list = ', '.join(quote_identifier(c, db_type) for c in cols)
                         cur.execute(f"INSERT INTO {tbl} ({col_list}) VALUES ({placeholders})", vals)
                     success += 1
             elif mode == 'update' and match_key and match_key in mapped:
-                check_sql = f'SELECT COUNT(*) FROM "{table}" WHERE "{match_key}" = ?'
-                if db_type in ('mysql','mariadb'):
-                    check_sql = f"SELECT COUNT(*) FROM `{table}` WHERE `{match_key}` = %s"
-                elif db_type == 'mssql':
-                    check_sql = f"SELECT COUNT(*) FROM [{table}] WHERE [{match_key}] = ?"
+                mk_quoted = quote_identifier(match_key, db_type)
+                ph = '%s' if db_type in ('mysql','mariadb') else '?'
+                check_sql = f'SELECT COUNT(*) FROM {tbl} WHERE {mk_quoted} = {ph}'
                 cur.execute(check_sql, (mapped[match_key],))
                 exists = cur.fetchone()[0] > 0
                 if not exists:
@@ -1727,25 +1898,24 @@ def _writeback_to_db(config, records, dry_run=False):
                     preview.append({'action': 'UPDATE', 'match_value': mapped[match_key], 'data': mapped})
                     success += 1
                 else:
-                    set_clause = ', '.join(
-                        f'`{c}` = %s' if db_type in ('mysql','mariadb')
-                        else f'[{c}] = ?' if db_type == 'mssql'
-                        else f'"{c}" = ?' for c in cols if c != match_key)
-                    where_clause = (f'`{match_key}` = %s' if db_type in ('mysql','mariadb')
-                                    else f'[{match_key}] = ?' if db_type == 'mssql'
-                                    else f'"{match_key}" = ?')
-                    update_vals = [v for c, v in zip(cols, vals) if c != match_key] + [mapped[match_key]]
-                    tbl = f'`{table}`' if db_type in ('mysql','mariadb') else f'[{table}]' if db_type == 'mssql' else f'"{table}"'
-                    cur.execute(f"UPDATE {tbl} SET {set_clause} WHERE {where_clause}", update_vals)
+                    set_parts = []
+                    update_vals = []
+                    for c, v in zip(cols, vals):
+                        if c != match_key:
+                            set_parts.append(f'{quote_identifier(c, db_type)} = {ph}')
+                            update_vals.append(v)
+                    update_vals.append(mapped[match_key])
+                    set_clause = ', '.join(set_parts)
+                    cur.execute(f"UPDATE {tbl} SET {set_clause} WHERE {mk_quoted} = {ph}", update_vals)
                     success += 1
             else:
                 if dry_run:
                     preview.append({'action': 'INSERT', 'data': mapped})
                     success += 1
                 else:
-                    placeholders = ', '.join(['%s'] * len(cols)) if db_type in ('mysql','mariadb') else ', '.join(['?'] * len(cols))
-                    col_list = ', '.join(f'`{c}`' if db_type in ('mysql','mariadb') else f'[{c}]' if db_type == 'mssql' else f'"{c}"' for c in cols)
-                    tbl = f'`{table}`' if db_type in ('mysql','mariadb') else f'[{table}]' if db_type == 'mssql' else f'"{table}"'
+                    ph = '%s' if db_type in ('mysql','mariadb') else '?'
+                    placeholders = ', '.join([ph] * len(cols))
+                    col_list = ', '.join(quote_identifier(c, db_type) for c in cols)
                     cur.execute(f"INSERT INTO {tbl} ({col_list}) VALUES ({placeholders})", vals)
                     success += 1
         except Exception as e:
@@ -1941,10 +2111,32 @@ def list_writeback_targets():
 
 if __name__=='__main__':
     init_db()
-    print("\n✅  O.S MDM V2 — Backend démarré !")
-    print("📋  Admin : admin@osmdm.local / admin123")
-    print("🌐  API   : http://localhost:5001/api\n")
-    app.run(host='127.0.0.1', debug=True, port=5001, use_reloader=False)
+    # Démarrer le scheduler de synchro automatique
+    from premium import start_scheduler
+    start_scheduler()
+    logger.info("O.S MDM V2.1 — Backend démarré (avec scheduler)")
+    logger.info("API   : http://localhost:5001/api")
+    if not _env_secret:
+        logger.warning("⚠️  Définissez MDM_SECRET pour la production")
+    app.run(host='127.0.0.1', debug=os.environ.get('MDM_DEBUG','false').lower()=='true', port=5001, use_reloader=False)
+
+# ── HEALTH CHECK ─────────────────────────────────
+@app.route('/api/health', methods=['GET'])
+def health_check():
+    """Endpoint de santé — pas d'auth requise"""
+    try:
+        db = sqlite3.connect(DB_PATH)
+        db.execute("SELECT 1")
+        db.close()
+        db_ok = True
+    except Exception:
+        db_ok = False
+    return jsonify({
+        'status': 'ok' if db_ok else 'degraded',
+        'version': '2.1.0',
+        'database': 'ok' if db_ok else 'error',
+        'timestamp': datetime.now(timezone.utc).isoformat(),
+    }), 200 if db_ok else 503
 
 # ── §4.5 VUE 360° ENTITÉ GÉNÉRIQUE ─────────────────────
 @app.route('/api/entities/<eid>/360', methods=['GET'])

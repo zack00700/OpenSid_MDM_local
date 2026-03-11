@@ -2,6 +2,7 @@
  * O.S MDM V2 — Application JavaScript
  * Modules : Auth, Dashboard, Import, Entités, Doublons, Golden Records,
  *            Connexions DB, Règles de fusion, Reporting BI, Export CSV
+ * V2.1 : Responsive + Accessibility
  */
 
 const API = `${window.location.protocol}//${window.location.hostname}:3000/api`;
@@ -10,6 +11,25 @@ let currentUser = null, currentPage = 1;
 let currentEntityId = null, currentDupId = null, currentDupData = null;
 let currentConnId = null, currentRuleId = null;
 let charts = {}, debounceTimer = null;
+
+// ── MOBILE SIDEBAR ───────────────────────────────────────────────────────
+function toggleMobileSidebar(){
+  const sb=document.getElementById('sidebar');
+  const ov=document.getElementById('sidebar-overlay');
+  if(sb.classList.contains('open')){closeMobileSidebar();}
+  else{sb.classList.add('open');ov.classList.add('active');document.body.style.overflow='hidden';}
+}
+function closeMobileSidebar(){
+  const sb=document.getElementById('sidebar');
+  const ov=document.getElementById('sidebar-overlay');
+  sb.classList.remove('open');ov.classList.remove('active');document.body.style.overflow='';
+}
+// Close sidebar on nav click (mobile)
+document.addEventListener('click',e=>{
+  if(e.target.closest('.sidebar-link')&&window.innerWidth<=768)setTimeout(closeMobileSidebar,150);
+});
+// Close sidebar on Escape key
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeMobileSidebar();});
 
 // ── UTILS ─────────────────────────────────────────────────────────────────
 function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -77,6 +97,13 @@ function showSection(name){
     case 'export':      break;
     case 'admin-users': loadUsers(); break;
     case 'profile':     loadProfile(); break;
+    // Premium
+    case 'data-quality':      loadDataQuality();break;
+    case 'validation-rules':  loadValidationRules();break;
+    case 'notifications':     loadNotifications();break;
+    case 'webhooks':          loadWebhooks();break;
+    case 'scheduler':         loadScheduler();break;
+    // Maritime
     case 'maritime-dashboard': initMaritime().then(()=>loadMaritimeDashboard());break;
     case 'maritime-vessels': initMaritime().then(()=>{loadVessels();loadMaritimeKPIs();});break;
     case 'maritime-owners':  initMaritime().then(()=>loadOwners());break;
@@ -1069,3 +1096,167 @@ async function dryRunGR(configId, name) {
   </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PREMIUM FEATURES — JavaScript
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── DATA QUALITY ─────────────────────────────────────────────────────────
+async function loadDataQuality(){
+  const data=await api('/premium/quality/bulk');if(!data)return;
+  // KPIs
+  const scoreColor=s=>s>=70?'#059669':s>=40?'#f59e0b':'#ef4444';
+  document.getElementById('dq-overall').textContent=data.avg_overall+'%';
+  document.getElementById('dq-overall').style.color=scoreColor(data.avg_overall);
+  document.getElementById('dq-completeness').textContent=data.avg_completeness+'%';
+  document.getElementById('dq-conformity').textContent=data.avg_conformity+'%';
+  document.getElementById('dq-total').textContent=data.total_entities;
+  // Distribution
+  const dist=data.quality_distribution||{};
+  const distEl=document.getElementById('dq-distribution');
+  const total=data.total_entities||1;
+  distEl.innerHTML=`
+    <div style="display:flex;gap:4px;height:24px;border-radius:8px;overflow:hidden;margin-bottom:16px;">
+      <div style="background:#059669;flex:${dist.excellent||0};min-width:${dist.excellent?'2px':'0'}" title="Excellent: ${dist.excellent}"></div>
+      <div style="background:#10B981;flex:${dist.good||0};min-width:${dist.good?'2px':'0'}" title="Bon: ${dist.good}"></div>
+      <div style="background:#f59e0b;flex:${dist.fair||0};min-width:${dist.fair?'2px':'0'}" title="Moyen: ${dist.fair}"></div>
+      <div style="background:#ef4444;flex:${dist.poor||0};min-width:${dist.poor?'2px':'0'}" title="Faible: ${dist.poor}"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
+      <div style="display:flex;align-items:center;gap:6px;"><div style="width:12px;height:12px;border-radius:3px;background:#059669;"></div><span style="font-size:12px;">Excellent (≥80) : <b>${dist.excellent||0}</b></span></div>
+      <div style="display:flex;align-items:center;gap:6px;"><div style="width:12px;height:12px;border-radius:3px;background:#10B981;"></div><span style="font-size:12px;">Bon (60-79) : <b>${dist.good||0}</b></span></div>
+      <div style="display:flex;align-items:center;gap:6px;"><div style="width:12px;height:12px;border-radius:3px;background:#f59e0b;"></div><span style="font-size:12px;">Moyen (40-59) : <b>${dist.fair||0}</b></span></div>
+      <div style="display:flex;align-items:center;gap:6px;"><div style="width:12px;height:12px;border-radius:3px;background:#ef4444;"></div><span style="font-size:12px;">Faible (<40) : <b>${dist.poor||0}</b></span></div>
+    </div>`;
+  // Top issues
+  const issEl=document.getElementById('dq-issues');
+  if(data.top_issues?.length){
+    issEl.innerHTML=data.top_issues.slice(0,10).map((iss,i)=>`
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;${i?'border-top:1px solid #f3f4f6;':''}">
+        <span style="font-size:12px;color:#374151;">${esc(iss.issue)}</span>
+        <span class="badge" style="background:#fee2e2;color:#dc2626;">${iss.count}</span>
+      </div>`).join('');
+  } else {
+    issEl.innerHTML='<p style="color:#059669;font-size:13px;padding:20px 0;text-align:center;">✅ Aucun problème détecté</p>';
+  }
+}
+
+// ── VALIDATION RULES ─────────────────────────────────────────────────────
+let currentVRuleId=null;
+async function loadValidationRules(){
+  const rules=await api('/premium/validation-rules');
+  const el=document.getElementById('vrules-list');if(!rules){el.innerHTML='<p style="color:#9ca3af;font-size:13px;">Erreur chargement</p>';return;}
+  if(!rules.length){el.innerHTML='<p style="color:#9ca3af;font-size:13px;padding:20px;">Aucune règle configurée. Cliquez sur "+ Nouvelle règle" pour commencer.</p>';return;}
+  el.innerHTML=`<div class="table-wrap"><table><thead><tr>
+    <th class="table-th">Nom</th><th class="table-th">Champ</th><th class="table-th">Type</th>
+    <th class="table-th">Sévérité</th><th class="table-th">Statut</th><th class="table-th">Actions</th>
+  </tr></thead><tbody>${rules.map(r=>{
+    const sevStyle=r.severity==='error'?'background:#fee2e2;color:#dc2626;':'background:#fef3c7;color:#92400e;';
+    return`<tr>
+      <td class="table-td" style="font-weight:600;">${esc(r.name)}</td>
+      <td class="table-td"><code style="background:#f3f4f6;padding:2px 6px;border-radius:4px;font-size:12px;">${esc(r.field)}</code></td>
+      <td class="table-td"><span class="rule-strategy-tag">${esc(r.rule_type)}</span></td>
+      <td class="table-td"><span class="badge" style="${sevStyle}">${r.severity==='error'?'Erreur':'Warning'}</span></td>
+      <td class="table-td"><span class="badge" style="${r.active?'background:#d1fae5;color:#059669;':'background:#f3f4f6;color:#9ca3af;'}">${r.active?'Actif':'Inactif'}</span></td>
+      <td class="table-td"><button class="btn btn-danger btn-sm" onclick="deleteVRule('${r.id}')">Supprimer</button></td>
+    </tr>`;}).join('')}</tbody></table></div>`;
+}
+function openValidationRuleModal(){currentVRuleId=null;document.getElementById('vrule-modal').style.display='flex';document.getElementById('vr-name').value='';document.getElementById('vr-field').value='';document.getElementById('vr-value').value='';}
+function closeVRuleModal(){document.getElementById('vrule-modal').style.display='none';}
+async function saveVRule(){
+  const body={name:document.getElementById('vr-name').value.trim(),field:document.getElementById('vr-field').value.trim(),rule_type:document.getElementById('vr-type').value,rule_value:document.getElementById('vr-value').value.trim(),severity:document.getElementById('vr-severity').value,apply_to:document.getElementById('vr-apply').value};
+  if(!body.name||!body.field){toast('Nom et champ requis','error');return;}
+  const res=await api('/premium/validation-rules',{method:'POST',body:JSON.stringify(body)});
+  if(res){toast('Règle créée');closeVRuleModal();loadValidationRules();}
+}
+async function deleteVRule(id){if(!confirm('Supprimer cette règle ?'))return;await api(`/premium/validation-rules/${id}`,{method:'DELETE'});toast('Règle supprimée','warning');loadValidationRules();}
+
+// ── NOTIFICATIONS ────────────────────────────────────────────────────────
+async function loadNotifications(){
+  const data=await api('/premium/notifications');
+  const el=document.getElementById('notif-list');if(!data){return;}
+  if(!data.length){el.innerHTML='<p style="color:#9ca3af;font-size:13px;padding:20px;text-align:center;">Aucune notification.</p>';return;}
+  el.innerHTML=data.map(n=>{
+    const typeColors={info:'#1B5EA6',success:'#059669',warning:'#f59e0b',error:'#dc2626'};
+    const dotColor=typeColors[n.type]||'#6b7280';
+    return`<div style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;${n.read?'opacity:.6;':''}border-bottom:1px solid #f3f4f6;cursor:pointer;" onclick="markNotifRead('${n.id}',this)">
+      <div style="width:8px;height:8px;border-radius:50%;background:${n.read?'#e5e7eb':dotColor};margin-top:5px;flex-shrink:0;"></div>
+      <div style="flex:1;min-width:0;">
+        <p style="font-size:13px;font-weight:600;color:#111827;margin:0 0 2px;">${esc(n.title)}</p>
+        <p style="font-size:12px;color:#6b7280;margin:0 0 4px;word-break:break-word;">${esc(n.message||'')}</p>
+        <p style="font-size:11px;color:#9ca3af;margin:0;">${fmtDate(n.created_at)}</p>
+      </div>
+    </div>`;}).join('');
+}
+async function markNotifRead(id,el){await api(`/premium/notifications/${id}/read`,{method:'PUT'});if(el)el.style.opacity='.6';loadNotifBadge();}
+async function markAllNotifRead(){await api('/premium/notifications/read-all',{method:'PUT'});toast('Tout marqué comme lu');loadNotifications();loadNotifBadge();}
+async function loadNotifBadge(){
+  const data=await api('/premium/notifications/unread-count');if(!data)return;
+  const badge=document.getElementById('notif-badge');
+  if(badge){if(data.count>0){badge.textContent=data.count;badge.style.display='inline';}else{badge.style.display='none';}}
+}
+
+// ── WEBHOOKS ─────────────────────────────────────────────────────────────
+async function loadWebhooks(){
+  const data=await api('/premium/webhooks');
+  const el=document.getElementById('webhooks-list');if(!data){return;}
+  if(!data.length){el.innerHTML='<p style="color:#9ca3af;font-size:13px;padding:20px;text-align:center;">Aucun webhook configuré.</p>';return;}
+  el.innerHTML=`<div class="table-wrap"><table><thead><tr>
+    <th class="table-th">Nom</th><th class="table-th">URL</th><th class="table-th">Événements</th>
+    <th class="table-th">Dernier appel</th><th class="table-th">Statut</th><th class="table-th">Actions</th>
+  </tr></thead><tbody>${data.map(w=>{
+    const events=(Array.isArray(w.events)?w.events:[]).map(e=>`<span class="badge" style="background:#e8f0fb;color:#1B5EA6;margin:1px;">${esc(e)}</span>`).join(' ');
+    const statusStyle=w.last_status?.startsWith('ok')?'background:#d1fae5;color:#059669;':w.last_status==='never'?'background:#fef3c7;color:#92400e;':'background:#fee2e2;color:#dc2626;';
+    return`<tr>
+      <td class="table-td" style="font-weight:600;">${esc(w.name)}</td>
+      <td class="table-td" style="font-size:11px;font-family:monospace;max-width:200px;overflow:hidden;text-overflow:ellipsis;">${esc(w.url)}</td>
+      <td class="table-td">${events}</td>
+      <td class="table-td" style="font-size:11px;color:#9ca3af;">${w.last_triggered?fmtDate(w.last_triggered):'Jamais'}</td>
+      <td class="table-td"><span class="badge" style="${statusStyle}">${esc(w.last_status||'never')}</span></td>
+      <td class="table-td"><button class="btn btn-danger btn-sm" onclick="deleteWebhook('${w.id}')">Supprimer</button></td>
+    </tr>`;}).join('')}</tbody></table></div>`;
+}
+function openWebhookModal(){document.getElementById('webhook-modal').style.display='flex';document.getElementById('wh-name').value='';document.getElementById('wh-url').value='';document.getElementById('wh-secret').value='';}
+function closeWebhookModal(){document.getElementById('webhook-modal').style.display='none';}
+async function saveWebhook(){
+  const events=[...document.querySelectorAll('.wh-event:checked')].map(c=>c.value);
+  const body={name:document.getElementById('wh-name').value.trim(),url:document.getElementById('wh-url').value.trim(),secret:document.getElementById('wh-secret').value.trim(),events};
+  if(!body.name||!body.url){toast('Nom et URL requis','error');return;}
+  const res=await api('/premium/webhooks',{method:'POST',body:JSON.stringify(body)});
+  if(res){toast('Webhook créé');closeWebhookModal();loadWebhooks();}
+}
+async function deleteWebhook(id){if(!confirm('Supprimer ?'))return;await api(`/premium/webhooks/${id}`,{method:'DELETE'});toast('Supprimé','warning');loadWebhooks();}
+
+// ── SCHEDULER ────────────────────────────────────────────────────────────
+async function loadScheduler(){
+  const data=await api('/premium/scheduler/status');if(!data)return;
+  const badge=document.getElementById('scheduler-status-badge');
+  if(data.running){badge.textContent='En cours';badge.style.background='#d1fae5';badge.style.color='#059669';}
+  else{badge.textContent='Arrêté';badge.style.background='#fee2e2';badge.style.color='#dc2626';}
+  const el=document.getElementById('scheduler-connectors');
+  if(!data.scheduled_connectors?.length){el.innerHTML='<p style="color:#9ca3af;font-size:13px;padding:20px;">Aucun connecteur avec synchro planifiée. Configurez un intervalle dans vos connecteurs API.</p>';return;}
+  el.innerHTML=`<div class="table-wrap"><table><thead><tr>
+    <th class="table-th">Connecteur</th><th class="table-th">Intervalle</th><th class="table-th">Dernière synchro</th>
+    <th class="table-th">Statut</th><th class="table-th">Enregistrements</th>
+  </tr></thead><tbody>${data.scheduled_connectors.map(c=>{
+    const statusStyle=c.last_sync_status==='ok'?'background:#d1fae5;color:#059669;':c.last_sync_status==='never'?'background:#fef3c7;color:#92400e;':'background:#fee2e2;color:#dc2626;';
+    return`<tr>
+      <td class="table-td" style="font-weight:600;">${esc(c.name)}</td>
+      <td class="table-td">${c.sync_interval_minutes} min</td>
+      <td class="table-td" style="font-size:11px;color:#9ca3af;">${c.last_sync?fmtDate(c.last_sync):'Jamais'}</td>
+      <td class="table-td"><span class="badge" style="${statusStyle}">${esc(c.last_sync_status||'never')}</span></td>
+      <td class="table-td">${c.last_sync_count||0}</td>
+    </tr>`;}).join('')}</tbody></table></div>`;
+}
+async function startScheduler(){const r=await api('/premium/scheduler/start',{method:'POST'});if(r)toast('Scheduler démarré');loadScheduler();}
+async function stopScheduler(){const r=await api('/premium/scheduler/stop',{method:'POST'});if(r)toast('Scheduler arrêté','warning');loadScheduler();}
+
+// ── NOTIFICATION BADGE (appelé au login) ─────────────────────────────────
+// Charger le badge de notifs au démarrage
+const _origInitApp = initApp;
+initApp = async function(){
+  await _origInitApp();
+  loadNotifBadge();
+  // Rafraîchir le badge toutes les 30 secondes
+  setInterval(loadNotifBadge, 30000);
+};
