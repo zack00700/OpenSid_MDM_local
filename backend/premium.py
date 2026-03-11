@@ -13,14 +13,44 @@ import json, uuid, re, time, threading
 from datetime import datetime, timezone, timedelta
 from flask import Blueprint, request, jsonify, g
 from functools import wraps
+import jwt as pyjwt
 
 premium_bp = Blueprint('premium', __name__)
 
-# ── AUTH HELPER (repris du module principal) ─────────
-def _get_token_required():
-    """Importe le décorateur token_required depuis app"""
-    from app import token_required
-    return token_required
+# ── AUTH : propre décorateur pour le blueprint ─────────
+def premium_token_required(f):
+    """Décorateur d'auth pour les routes premium — importe SECRET_KEY depuis app"""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        from app import SECRET_KEY
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if not token:
+            return jsonify({'error': 'Token manquant'}), 401
+        try:
+            g.current_user = pyjwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+        except pyjwt.ExpiredSignatureError:
+            return jsonify({'error': 'Token expiré'}), 401
+        except Exception:
+            return jsonify({'error': 'Token invalide'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+def premium_admin_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        from app import SECRET_KEY
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if not token:
+            return jsonify({'error': 'Token manquant'}), 401
+        try:
+            payload = pyjwt.decode(token, SECRET_KEY, algorithms=['HS256'])
+            if payload.get('role') != 'admin':
+                return jsonify({'error': 'Accès réservé aux admins'}), 403
+            g.current_user = payload
+        except Exception:
+            return jsonify({'error': 'Token invalide'}), 401
+        return f(*args, **kwargs)
+    return decorated
 
 def _get_db():
     from app import get_db
@@ -132,104 +162,95 @@ def compute_quality_score(data_dict, rules=None):
 
 
 @premium_bp.route('/quality/score', methods=['POST'])
+@premium_token_required
 def quality_score_single():
     """Score de qualité pour des données brutes"""
-    from app import token_required
-    @token_required
-    def _inner():
-        data = (request.json or {}).get('data', {})
-        return jsonify(compute_quality_score(data))
-    return _inner()
+    data = (request.json or {}).get('data', {})
+    return jsonify(compute_quality_score(data))
 
 
 @premium_bp.route('/quality/entity/<eid>', methods=['GET'])
+@premium_token_required
 def quality_entity(eid):
     """Score de qualité d'une entité existante"""
-    from app import token_required
-    @token_required
-    def _inner():
-        db = _get_db()
-        row = db.execute("SELECT data, updated_at FROM entities WHERE id=?", (eid,)).fetchone()
-        if not row:
-            return jsonify({'error': 'Entité introuvable'}), 404
+    db = _get_db()
+    row = db.execute("SELECT data, updated_at FROM entities WHERE id=?", (eid,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Entité introuvable'}), 404
+    try:
+        data = json.loads(row['data'])
+    except:
+        data = {}
+    score = compute_quality_score(data)
+    # Freshness basée sur updated_at
+    if row['updated_at']:
+        try:
+            updated = datetime.fromisoformat(row['updated_at'].replace('Z', '+00:00'))
+            age_days = (datetime.now(timezone.utc) - updated.replace(tzinfo=timezone.utc)).days
+            score['freshness'] = max(0, 100 - age_days * 2)  # -2 pts par jour
+            score['age_days'] = age_days
+            score['overall'] = round(score['completeness'] * 0.5 + score['conformity'] * 0.3 + score['freshness'] * 0.2, 1)
+        except:
+            pass
+    return jsonify(score)
+
+
+@premium_bp.route('/quality/bulk', methods=['GET'])
+@premium_token_required
+def quality_bulk():
+    """Score de qualité global pour toutes les entités (ou filtrées par source)"""
+    db = _get_db()
+    source = request.args.get('source', '')
+    limit = int(request.args.get('limit', 1000))
+    wh = "status='active'"
+    params = []
+    if source:
+        wh += " AND source LIKE ?"
+        params.append(f'%{source}%')
+    rows = db.execute(f"SELECT id, data, source, updated_at FROM entities WHERE {wh} ORDER BY created_at DESC LIMIT ?",
+                      params + [limit]).fetchall()
+        
+    scores = []
+    total_overall = 0
+    total_completeness = 0
+    total_conformity = 0
+    quality_distribution = {'excellent': 0, 'good': 0, 'fair': 0, 'poor': 0}
+    all_issues = {}
+
+    for row in rows:
         try:
             data = json.loads(row['data'])
         except:
             data = {}
         score = compute_quality_score(data)
-        # Freshness basée sur updated_at
-        if row['updated_at']:
-            try:
-                updated = datetime.fromisoformat(row['updated_at'].replace('Z', '+00:00'))
-                age_days = (datetime.now(timezone.utc) - updated.replace(tzinfo=timezone.utc)).days
-                score['freshness'] = max(0, 100 - age_days * 2)  # -2 pts par jour
-                score['age_days'] = age_days
-                score['overall'] = round(score['completeness'] * 0.5 + score['conformity'] * 0.3 + score['freshness'] * 0.2, 1)
-            except:
-                pass
-        return jsonify(score)
-    return _inner()
-
-
-@premium_bp.route('/quality/bulk', methods=['GET'])
-def quality_bulk():
-    """Score de qualité global pour toutes les entités (ou filtrées par source)"""
-    from app import token_required
-    @token_required
-    def _inner():
-        db = _get_db()
-        source = request.args.get('source', '')
-        limit = int(request.args.get('limit', 1000))
-        wh = "status='active'"
-        params = []
-        if source:
-            wh += " AND source LIKE ?"
-            params.append(f'%{source}%')
-        rows = db.execute(f"SELECT id, data, source, updated_at FROM entities WHERE {wh} ORDER BY created_at DESC LIMIT ?",
-                          params + [limit]).fetchall()
-        
-        scores = []
-        total_overall = 0
-        total_completeness = 0
-        total_conformity = 0
-        quality_distribution = {'excellent': 0, 'good': 0, 'fair': 0, 'poor': 0}
-        all_issues = {}
-
-        for row in rows:
-            try:
-                data = json.loads(row['data'])
-            except:
-                data = {}
-            score = compute_quality_score(data)
-            total_overall += score['overall']
-            total_completeness += score['completeness']
-            total_conformity += score['conformity']
+        total_overall += score['overall']
+        total_completeness += score['completeness']
+        total_conformity += score['conformity']
             
-            if score['overall'] >= 80:
-                quality_distribution['excellent'] += 1
-            elif score['overall'] >= 60:
-                quality_distribution['good'] += 1
-            elif score['overall'] >= 40:
-                quality_distribution['fair'] += 1
-            else:
-                quality_distribution['poor'] += 1
+        if score['overall'] >= 80:
+            quality_distribution['excellent'] += 1
+        elif score['overall'] >= 60:
+            quality_distribution['good'] += 1
+        elif score['overall'] >= 40:
+            quality_distribution['fair'] += 1
+        else:
+            quality_distribution['poor'] += 1
             
-            for issue in score['issues']:
-                all_issues[issue] = all_issues.get(issue, 0) + 1
+        for issue in score['issues']:
+            all_issues[issue] = all_issues.get(issue, 0) + 1
 
-        count = len(rows) or 1
-        # Top issues triées par fréquence
-        top_issues = sorted(all_issues.items(), key=lambda x: -x[1])[:20]
+    count = len(rows) or 1
+    # Top issues triées par fréquence
+    top_issues = sorted(all_issues.items(), key=lambda x: -x[1])[:20]
 
-        return jsonify({
-            'total_entities': len(rows),
-            'avg_overall': round(total_overall / count, 1),
-            'avg_completeness': round(total_completeness / count, 1),
-            'avg_conformity': round(total_conformity / count, 1),
-            'quality_distribution': quality_distribution,
-            'top_issues': [{'issue': k, 'count': v} for k, v in top_issues],
-        })
-    return _inner()
+    return jsonify({
+        'total_entities': len(rows),
+        'avg_overall': round(total_overall / count, 1),
+        'avg_completeness': round(total_completeness / count, 1),
+        'avg_conformity': round(total_conformity / count, 1),
+        'quality_distribution': quality_distribution,
+        'top_issues': [{'issue': k, 'count': v} for k, v in top_issues],
+    })
 
 
 # ═══════════════════════════════════════════════════════
@@ -249,66 +270,51 @@ RULE_TYPES = {
 }
 
 @premium_bp.route('/validation-rules', methods=['GET'])
+@premium_token_required
 def list_validation_rules():
-    from app import token_required
-    @token_required
-    def _inner():
-        db = _get_db()
-        rows = db.execute("SELECT * FROM validation_rules ORDER BY field, created_at").fetchall()
-        return jsonify([dict(r) for r in rows])
-    return _inner()
+    db = _get_db()
+    rows = db.execute("SELECT * FROM validation_rules ORDER BY field, created_at").fetchall()
+    return jsonify([dict(r) for r in rows])
 
 @premium_bp.route('/validation-rules/types', methods=['GET'])
+@premium_token_required
 def list_rule_types():
-    from app import token_required
-    @token_required
-    def _inner():
-        return jsonify(RULE_TYPES)
-    return _inner()
+    return jsonify(RULE_TYPES)
 
 @premium_bp.route('/validation-rules', methods=['POST'])
+@premium_token_required
 def create_validation_rule():
-    from app import token_required
-    @token_required
-    def _inner():
-        b = request.json or {}
-        rid = str(uuid.uuid4())
-        db = _get_db()
-        db.execute("""INSERT INTO validation_rules(id, name, field, rule_type, rule_value, severity, active, apply_to)
-                      VALUES(?,?,?,?,?,?,?,?)""",
-            (rid, b.get('name', ''), b.get('field', ''), b.get('rule_type', 'required'),
-             json.dumps(b.get('rule_value', '')), b.get('severity', 'warning'),
-             1 if b.get('active', True) else 0, b.get('apply_to', 'entity')))
-        db.commit()
-        _audit('create', 'validation_rule', rid, {'name': b.get('name')})
-        return jsonify({'id': rid, 'message': 'Règle créée'}), 201
-    return _inner()
+    b = request.json or {}
+    rid = str(uuid.uuid4())
+    db = _get_db()
+    db.execute("""INSERT INTO validation_rules(id, name, field, rule_type, rule_value, severity, active, apply_to)
+                  VALUES(?,?,?,?,?,?,?,?)""",
+        (rid, b.get('name', ''), b.get('field', ''), b.get('rule_type', 'required'),
+         json.dumps(b.get('rule_value', '')), b.get('severity', 'warning'),
+         1 if b.get('active', True) else 0, b.get('apply_to', 'entity')))
+    db.commit()
+    _audit('create', 'validation_rule', rid, {'name': b.get('name')})
+    return jsonify({'id': rid, 'message': 'Règle créée'}), 201
 
 @premium_bp.route('/validation-rules/<rid>', methods=['PUT'])
+@premium_token_required
 def update_validation_rule(rid):
-    from app import token_required
-    @token_required
-    def _inner():
-        b = request.json or {}
-        db = _get_db()
-        db.execute("""UPDATE validation_rules SET name=?, field=?, rule_type=?, rule_value=?,
-                      severity=?, active=?, apply_to=? WHERE id=?""",
-            (b.get('name'), b.get('field'), b.get('rule_type'),
-             json.dumps(b.get('rule_value', '')), b.get('severity', 'warning'),
-             1 if b.get('active', True) else 0, b.get('apply_to', 'entity'), rid))
-        db.commit()
-        return jsonify({'message': 'Mise à jour'})
-    return _inner()
+    b = request.json or {}
+    db = _get_db()
+    db.execute("""UPDATE validation_rules SET name=?, field=?, rule_type=?, rule_value=?,
+                  severity=?, active=?, apply_to=? WHERE id=?""",
+        (b.get('name'), b.get('field'), b.get('rule_type'),
+         json.dumps(b.get('rule_value', '')), b.get('severity', 'warning'),
+         1 if b.get('active', True) else 0, b.get('apply_to', 'entity'), rid))
+    db.commit()
+    return jsonify({'message': 'Mise à jour'})
 
 @premium_bp.route('/validation-rules/<rid>', methods=['DELETE'])
+@premium_token_required
 def delete_validation_rule(rid):
-    from app import token_required
-    @token_required
-    def _inner():
-        _get_db().execute("DELETE FROM validation_rules WHERE id=?", (rid,))
-        _get_db().commit()
-        return jsonify({'message': 'Supprimée'})
-    return _inner()
+    _get_db().execute("DELETE FROM validation_rules WHERE id=?", (rid,))
+    _get_db().commit()
+    return jsonify({'message': 'Supprimée'})
 
 def validate_entity_data(data_dict, apply_to='entity'):
     """Applique toutes les règles de validation actives sur un dict de données"""
@@ -367,21 +373,18 @@ def validate_entity_data(data_dict, apply_to='entity'):
     return {'valid': len(errors) == 0, 'errors': errors, 'warnings': warnings}
 
 @premium_bp.route('/validate/entity/<eid>', methods=['GET'])
+@premium_token_required
 def validate_entity(eid):
-    from app import token_required
-    @token_required
-    def _inner():
-        db = _get_db()
-        row = db.execute("SELECT data FROM entities WHERE id=?", (eid,)).fetchone()
-        if not row:
-            return jsonify({'error': 'Introuvable'}), 404
-        try:
-            data = json.loads(row['data'])
-        except:
-            data = {}
-        result = validate_entity_data(data)
-        return jsonify(result)
-    return _inner()
+    db = _get_db()
+    row = db.execute("SELECT data FROM entities WHERE id=?", (eid,)).fetchone()
+    if not row:
+        return jsonify({'error': 'Introuvable'}), 404
+    try:
+        data = json.loads(row['data'])
+    except:
+        data = {}
+    result = validate_entity_data(data)
+    return jsonify(result)
 
 
 # ═══════════════════════════════════════════════════════
@@ -389,79 +392,70 @@ def validate_entity(eid):
 # ═══════════════════════════════════════════════════════
 
 @premium_bp.route('/golden-records/<gid>/versions', methods=['GET'])
+@premium_token_required
 def golden_record_versions(gid):
     """Historique complet des versions d'un Golden Record"""
-    from app import token_required
-    @token_required
-    def _inner():
-        db = _get_db()
-        gr = db.execute("SELECT id FROM golden_records WHERE id=?", (gid,)).fetchone()
-        if not gr:
-            return jsonify({'error': 'Golden Record introuvable'}), 404
-        versions = db.execute("""SELECT * FROM golden_record_versions 
-                                 WHERE golden_record_id=? ORDER BY version DESC""", (gid,)).fetchall()
-        result = []
-        for v in versions:
-            vd = dict(v)
-            try:
-                vd['data'] = json.loads(vd['data'])
-            except:
-                pass
-            try:
-                vd['changes'] = json.loads(vd['changes'])
-            except:
-                pass
-            result.append(vd)
-        return jsonify(result)
-    return _inner()
+    db = _get_db()
+    gr = db.execute("SELECT id FROM golden_records WHERE id=?", (gid,)).fetchone()
+    if not gr:
+        return jsonify({'error': 'Golden Record introuvable'}), 404
+    versions = db.execute("""SELECT * FROM golden_record_versions 
+                             WHERE golden_record_id=? ORDER BY version DESC""", (gid,)).fetchall()
+    result = []
+    for v in versions:
+        vd = dict(v)
+        try:
+            vd['data'] = json.loads(vd['data'])
+        except:
+            pass
+        try:
+            vd['changes'] = json.loads(vd['changes'])
+        except:
+            pass
+        result.append(vd)
+    return jsonify(result)
 
 @premium_bp.route('/golden-records/<gid>/versions/<int:version>', methods=['GET'])
+@premium_token_required
 def golden_record_version_detail(gid, version):
     """Détail d'une version spécifique"""
-    from app import token_required
-    @token_required
-    def _inner():
-        db = _get_db()
-        v = db.execute("SELECT * FROM golden_record_versions WHERE golden_record_id=? AND version=?",
-                       (gid, version)).fetchone()
-        if not v:
-            return jsonify({'error': 'Version introuvable'}), 404
-        vd = dict(v)
-        for k in ('data', 'changes'):
-            try:
-                vd[k] = json.loads(vd[k])
-            except:
-                pass
-        return jsonify(vd)
-    return _inner()
+    db = _get_db()
+    v = db.execute("SELECT * FROM golden_record_versions WHERE golden_record_id=? AND version=?",
+                   (gid, version)).fetchone()
+    if not v:
+        return jsonify({'error': 'Version introuvable'}), 404
+    vd = dict(v)
+    for k in ('data', 'changes'):
+        try:
+            vd[k] = json.loads(vd[k])
+        except:
+            pass
+    return jsonify(vd)
 
 @premium_bp.route('/golden-records/<gid>/restore/<int:version>', methods=['POST'])
+@premium_token_required
 def restore_golden_record_version(gid, version):
     """Restaure un Golden Record à une version antérieure"""
-    from app import token_required
-    @token_required
-    def _inner():
-        db = _get_db()
-        v = db.execute("SELECT data FROM golden_record_versions WHERE golden_record_id=? AND version=?",
-                       (gid, version)).fetchone()
-        if not v:
-            return jsonify({'error': 'Version introuvable'}), 404
-        # Sauver la version actuelle avant restauration
-        current = db.execute("SELECT data FROM golden_records WHERE id=?", (gid,)).fetchone()
-        if current:
-            max_ver = db.execute("SELECT MAX(version) FROM golden_record_versions WHERE golden_record_id=?",
-                                (gid,)).fetchone()[0] or 0
-            db.execute("""INSERT INTO golden_record_versions(id, golden_record_id, version, data, changes, changed_by, created_at)
-                          VALUES(?,?,?,?,?,?,datetime('now'))""",
-                (str(uuid.uuid4()), gid, max_ver + 1, current['data'],
-                 json.dumps({'action': f'Backup avant restauration vers v{version}'}),
-                 g.current_user.get('email', '?')))
-        # Restaurer
-        db.execute("UPDATE golden_records SET data=?, updated_at=datetime('now') WHERE id=?", (v['data'], gid))
-        db.commit()
-        _audit('restore_version', 'golden_record', gid, {'restored_version': version})
-        return jsonify({'message': f'Golden Record restauré à la version {version}'})
-    return _inner()
+    db = _get_db()
+    v = db.execute("SELECT data FROM golden_record_versions WHERE golden_record_id=? AND version=?",
+                   (gid, version)).fetchone()
+    if not v:
+        return jsonify({'error': 'Version introuvable'}), 404
+    # Sauver la version actuelle avant restauration
+    current = db.execute("SELECT data FROM golden_records WHERE id=?", (gid,)).fetchone()
+    if current:
+        max_ver = db.execute("SELECT MAX(version) FROM golden_record_versions WHERE golden_record_id=?",
+                            (gid,)).fetchone()[0] or 0
+        db.execute("""INSERT INTO golden_record_versions(id, golden_record_id, version, data, changes, changed_by, created_at)
+                      VALUES(?,?,?,?,?,?,datetime('now'))""",
+            (str(uuid.uuid4()), gid, max_ver + 1, current['data'],
+             json.dumps({'action': f'Backup avant restauration vers v{version}'}),
+             g.current_user.get('email', '?')))
+    # Restaurer
+    db.execute("UPDATE golden_records SET data=?, updated_at=datetime('now') WHERE id=?", (v['data'], gid))
+    db.commit()
+    _audit('restore_version', 'golden_record', gid, {'restored_version': version})
+    return jsonify({'message': f'Golden Record restauré à la version {version}'})
 
 def save_golden_record_version(db, gid, old_data, new_data, changed_by='system'):
     """Sauvegarde automatiquement une version lors d'une modification de GR"""
@@ -493,54 +487,42 @@ def save_golden_record_version(db, gid, old_data, new_data, changed_by='system')
 # ═══════════════════════════════════════════════════════
 
 @premium_bp.route('/notifications', methods=['GET'])
+@premium_token_required
 def list_notifications():
     """Notifications de l'utilisateur courant"""
-    from app import token_required
-    @token_required
-    def _inner():
-        db = _get_db()
-        user_id = g.current_user.get('user_id', '')
-        unread_only = request.args.get('unread', 'false') == 'true'
-        wh = "user_id=? OR user_id='*'"
-        params = [user_id]
-        if unread_only:
-            wh += " AND read=0"
-        rows = db.execute(f"SELECT * FROM notifications WHERE {wh} ORDER BY created_at DESC LIMIT 50", params).fetchall()
-        return jsonify([dict(r) for r in rows])
-    return _inner()
+    db = _get_db()
+    user_id = g.current_user.get('user_id', '')
+    unread_only = request.args.get('unread', 'false') == 'true'
+    wh = "user_id=? OR user_id='*'"
+    params = [user_id]
+    if unread_only:
+        wh += " AND read=0"
+    rows = db.execute(f"SELECT * FROM notifications WHERE {wh} ORDER BY created_at DESC LIMIT 50", params).fetchall()
+    return jsonify([dict(r) for r in rows])
 
 @premium_bp.route('/notifications/unread-count', methods=['GET'])
+@premium_token_required
 def unread_count():
-    from app import token_required
-    @token_required
-    def _inner():
-        db = _get_db()
-        user_id = g.current_user.get('user_id', '')
-        count = db.execute("SELECT COUNT(*) FROM notifications WHERE (user_id=? OR user_id='*') AND read=0",
-                          (user_id,)).fetchone()[0]
-        return jsonify({'count': count})
-    return _inner()
+    db = _get_db()
+    user_id = g.current_user.get('user_id', '')
+    count = db.execute("SELECT COUNT(*) FROM notifications WHERE (user_id=? OR user_id='*') AND read=0",
+                      (user_id,)).fetchone()[0]
+    return jsonify({'count': count})
 
 @premium_bp.route('/notifications/<nid>/read', methods=['PUT'])
+@premium_token_required
 def mark_notification_read(nid):
-    from app import token_required
-    @token_required
-    def _inner():
-        _get_db().execute("UPDATE notifications SET read=1 WHERE id=?", (nid,))
-        _get_db().commit()
-        return jsonify({'message': 'Lu'})
-    return _inner()
+    _get_db().execute("UPDATE notifications SET read=1 WHERE id=?", (nid,))
+    _get_db().commit()
+    return jsonify({'message': 'Lu'})
 
 @premium_bp.route('/notifications/read-all', methods=['PUT'])
+@premium_token_required
 def mark_all_read():
-    from app import token_required
-    @token_required
-    def _inner():
-        user_id = g.current_user.get('user_id', '')
-        _get_db().execute("UPDATE notifications SET read=1 WHERE user_id=? OR user_id='*'", (user_id,))
-        _get_db().commit()
-        return jsonify({'message': 'Toutes les notifications marquées comme lues'})
-    return _inner()
+    user_id = g.current_user.get('user_id', '')
+    _get_db().execute("UPDATE notifications SET read=1 WHERE user_id=? OR user_id='*'", (user_id,))
+    _get_db().commit()
+    return jsonify({'message': 'Toutes les notifications marquées comme lues'})
 
 def create_notification(db, title, message, notif_type='info', user_id='*', link=''):
     """Crée une notification in-app. user_id='*' = broadcast à tous."""
@@ -552,49 +534,40 @@ def create_notification(db, title, message, notif_type='info', user_id='*', link
 
 # ── Webhooks ──
 @premium_bp.route('/webhooks', methods=['GET'])
+@premium_token_required
 def list_webhooks():
-    from app import token_required
-    @token_required
-    def _inner():
-        rows = _get_db().execute("SELECT id, name, url, events, active, last_triggered, last_status, created_at FROM webhooks ORDER BY created_at DESC").fetchall()
-        result = []
-        for r in rows:
-            d = dict(r)
-            try:
-                d['events'] = json.loads(d['events'])
-            except:
-                pass
-            result.append(d)
-        return jsonify(result)
-    return _inner()
+    rows = _get_db().execute("SELECT id, name, url, events, active, last_triggered, last_status, created_at FROM webhooks ORDER BY created_at DESC").fetchall()
+    result = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d['events'] = json.loads(d['events'])
+        except:
+            pass
+        result.append(d)
+    return jsonify(result)
 
 @premium_bp.route('/webhooks', methods=['POST'])
+@premium_token_required
 def create_webhook():
-    from app import token_required
-    @token_required
-    def _inner():
-        b = request.json or {}
-        wid = str(uuid.uuid4())
-        db = _get_db()
-        db.execute("""INSERT INTO webhooks(id, name, url, events, secret, active)
-                      VALUES(?,?,?,?,?,?)""",
-            (wid, b.get('name', ''), b.get('url', ''),
-             json.dumps(b.get('events', ['import_done', 'duplicates_found', 'golden_record_created'])),
-             b.get('secret', ''), 1 if b.get('active', True) else 0))
-        db.commit()
-        _audit('create', 'webhook', wid, {'name': b.get('name')})
-        return jsonify({'id': wid, 'message': 'Webhook créé'}), 201
-    return _inner()
+    b = request.json or {}
+    wid = str(uuid.uuid4())
+    db = _get_db()
+    db.execute("""INSERT INTO webhooks(id, name, url, events, secret, active)
+                  VALUES(?,?,?,?,?,?)""",
+        (wid, b.get('name', ''), b.get('url', ''),
+         json.dumps(b.get('events', ['import_done', 'duplicates_found', 'golden_record_created'])),
+         b.get('secret', ''), 1 if b.get('active', True) else 0))
+    db.commit()
+    _audit('create', 'webhook', wid, {'name': b.get('name')})
+    return jsonify({'id': wid, 'message': 'Webhook créé'}), 201
 
 @premium_bp.route('/webhooks/<wid>', methods=['DELETE'])
+@premium_token_required
 def delete_webhook(wid):
-    from app import token_required
-    @token_required
-    def _inner():
-        _get_db().execute("DELETE FROM webhooks WHERE id=?", (wid,))
-        _get_db().commit()
-        return jsonify({'message': 'Supprimé'})
-    return _inner()
+    _get_db().execute("DELETE FROM webhooks WHERE id=?", (wid,))
+    _get_db().commit()
+    return jsonify({'message': 'Supprimé'})
 
 def trigger_webhooks(event, payload):
     """Déclenche les webhooks abonnés à un événement (en background)"""
@@ -745,37 +718,28 @@ def stop_scheduler():
     _scheduler_running = False
 
 @premium_bp.route('/scheduler/status', methods=['GET'])
+@premium_token_required
 def scheduler_status():
-    from app import token_required
-    @token_required
-    def _inner():
-        db = _get_db()
-        scheduled = db.execute("""SELECT id, name, sync_interval_minutes, last_sync, last_sync_status, last_sync_count
-                                  FROM api_connectors WHERE enabled=1 AND sync_interval_minutes > 0
-                                  ORDER BY last_sync""").fetchall()
-        return jsonify({
-            'running': _scheduler_running,
-            'scheduled_connectors': [dict(r) for r in scheduled],
-        })
-    return _inner()
+    db = _get_db()
+    scheduled = db.execute("""SELECT id, name, sync_interval_minutes, last_sync, last_sync_status, last_sync_count
+                              FROM api_connectors WHERE enabled=1 AND sync_interval_minutes > 0
+                              ORDER BY last_sync""").fetchall()
+    return jsonify({
+        'running': _scheduler_running,
+        'scheduled_connectors': [dict(r) for r in scheduled],
+    })
 
 @premium_bp.route('/scheduler/start', methods=['POST'])
+@premium_admin_required
 def start_scheduler_endpoint():
-    from app import token_required, admin_required
-    @admin_required
-    def _inner():
-        start_scheduler()
-        return jsonify({'message': 'Scheduler démarré', 'running': True})
-    return _inner()
+    start_scheduler()
+    return jsonify({'message': 'Scheduler démarré', 'running': True})
 
 @premium_bp.route('/scheduler/stop', methods=['POST'])
+@premium_admin_required
 def stop_scheduler_endpoint():
-    from app import token_required, admin_required
-    @admin_required
-    def _inner():
-        stop_scheduler()
-        return jsonify({'message': 'Scheduler arrêté', 'running': False})
-    return _inner()
+    stop_scheduler()
+    return jsonify({'message': 'Scheduler arrêté', 'running': False})
 
 
 # ═══════════════════════════════════════════════════════
@@ -783,67 +747,64 @@ def stop_scheduler_endpoint():
 # ═══════════════════════════════════════════════════════
 
 @premium_bp.route('/lineage/golden-record/<gid>', methods=['GET'])
+@premium_token_required
 def golden_record_lineage(gid):
     """Data lineage : pour chaque champ du GR, d'où vient la valeur"""
-    from app import token_required
-    @token_required
-    def _inner():
-        db = _get_db()
-        gr = db.execute("SELECT * FROM golden_records WHERE id=?", (gid,)).fetchone()
-        if not gr:
-            return jsonify({'error': 'Introuvable'}), 404
+    db = _get_db()
+    gr = db.execute("SELECT * FROM golden_records WHERE id=?", (gid,)).fetchone()
+    if not gr:
+        return jsonify({'error': 'Introuvable'}), 404
         
-        gr_data = {}
-        try:
-            gr_data = json.loads(gr['data'])
-        except:
-            pass
-        source_ids = []
-        try:
-            source_ids = json.loads(gr['source_ids'])
-        except:
-            pass
+    gr_data = {}
+    try:
+        gr_data = json.loads(gr['data'])
+    except:
+        pass
+    source_ids = []
+    try:
+        source_ids = json.loads(gr['source_ids'])
+    except:
+        pass
         
-        # Charger les entités sources
-        sources = []
-        for sid in source_ids:
-            e = db.execute("SELECT id, mdm_id, data, source FROM entities WHERE id=?", (sid,)).fetchone()
-            if e:
-                ed = dict(e)
-                try:
-                    ed['data'] = json.loads(ed['data'])
-                except:
-                    ed['data'] = {}
-                sources.append(ed)
+    # Charger les entités sources
+    sources = []
+    for sid in source_ids:
+        e = db.execute("SELECT id, mdm_id, data, source FROM entities WHERE id=?", (sid,)).fetchone()
+        if e:
+            ed = dict(e)
+            try:
+                ed['data'] = json.loads(ed['data'])
+            except:
+                ed['data'] = {}
+            sources.append(ed)
         
-        # Construire le lineage
-        lineage = {}
-        for field, value in gr_data.items():
-            if field.startswith('_'):
-                continue
-            field_lineage = {
-                'current_value': value,
-                'sources': []
-            }
-            for src in sources:
-                src_value = src['data'].get(field)
-                if src_value is not None:
-                    field_lineage['sources'].append({
-                        'entity_id': src['id'],
-                        'mdm_id': src['mdm_id'],
-                        'source': src['source'],
-                        'value': src_value,
-                        'is_selected': str(src_value) == str(value),
-                    })
-            lineage[field] = field_lineage
+    # Construire le lineage
+    lineage = {}
+    for field, value in gr_data.items():
+        if field.startswith('_'):
+            continue
+        field_lineage = {
+            'current_value': value,
+            'sources': []
+        }
+        for src in sources:
+            src_value = src['data'].get(field)
+            if src_value is not None:
+                field_lineage['sources'].append({
+                    'entity_id': src['id'],
+                    'mdm_id': src['mdm_id'],
+                    'source': src['source'],
+                    'value': src_value,
+                    'is_selected': str(src_value) == str(value),
+                })
+        lineage[field] = field_lineage
         
-        return jsonify({
-            'golden_record_id': gid,
-            'golden_record_mdm_id': gr['mdm_id'],
-            'fields': lineage,
-            'source_count': len(sources),
-        })
-    return _inner()
+    return jsonify({
+        'golden_record_id': gid,
+        'golden_record_mdm_id': gr['mdm_id'],
+        'fields': lineage,
+        'source_count': len(sources),
+    })
 
 
 # ═══════════════════════════════════════════════════════
