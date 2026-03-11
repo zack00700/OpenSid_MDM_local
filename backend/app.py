@@ -58,6 +58,9 @@ RATE_LIMIT_CONFIG = {
 
 def check_rate_limit():
     """Vérifie le rate limit avant chaque requête"""
+    # Désactiver en mode test
+    if app.config.get('TESTING'):
+        return False
     ip = request.remote_addr
     path = request.path
     now = time.time()
@@ -2109,16 +2112,6 @@ def list_writeback_targets():
     })
 
 
-if __name__=='__main__':
-    init_db()
-    # Démarrer le scheduler de synchro automatique
-    from premium import start_scheduler
-    start_scheduler()
-    logger.info("O.S MDM V2.1 — Backend démarré (avec scheduler)")
-    logger.info("API   : http://localhost:5001/api")
-    if not _env_secret:
-        logger.warning("⚠️  Définissez MDM_SECRET pour la production")
-    app.run(host='127.0.0.1', debug=os.environ.get('MDM_DEBUG','false').lower()=='true', port=5001, use_reloader=False)
 
 # ── HEALTH CHECK ─────────────────────────────────
 @app.route('/api/health', methods=['GET'])
@@ -2365,3 +2358,16 @@ def export_pdf_data():
         'by_source': [dict(r) for r in db.execute("SELECT source,COUNT(*) as count FROM entities WHERE status IN ('active','merged') GROUP BY source ORDER BY count DESC").fetchall()],
         'import_trend': [dict(r) for r in db.execute("SELECT DATE(created_at) as day, COALESCE(SUM(imported),0) as rows FROM import_logs WHERE status='done' AND created_at>=date('now','-30 days') GROUP BY day ORDER BY day").fetchall()],
     })
+
+# ═══════════════════════════════════════════════════
+# MAIN — Doit être TOUT EN BAS du fichier
+# ═══════════════════════════════════════════════════
+if __name__ == '__main__':
+    init_db()
+    from premium import start_scheduler
+    start_scheduler()
+    logger.info("O.S MDM V2.1 — Backend démarré (avec scheduler)")
+    logger.info("API   : http://localhost:5001/api")
+    if not _env_secret:
+        logger.warning("⚠️  Définissez MDM_SECRET pour la production")
+    app.run(host='127.0.0.1', debug=os.environ.get('MDM_DEBUG','false').lower()=='true', port=5001, use_reloader=False)

@@ -25,29 +25,34 @@ def app():
     os.environ['MDM_SECRET'] = 'test-secret-key-for-pytest-only-32chars'
     os.environ['MDM_CORS_ORIGINS'] = '*'
     
-    import importlib
-    # On doit importer après avoir posé l'env
-    if 'app' in sys.modules:
-        # Recharger le module pour utiliser la nouvelle DB
-        import app as app_module
-        app_module.DB_PATH = db_path
-        app_module.app.config['DB_PATH'] = db_path
-        app_module.init_db()
-        flask_app = app_module.app
-    else:
-        import app as app_module
-        app_module.DB_PATH = db_path
-        app_module.app.config['DB_PATH'] = db_path
-        app_module.init_db()
-        flask_app = app_module.app
+    import app as app_module
     
-    flask_app.config['TESTING'] = True
+    # Sauvegarder et remplacer le DB_PATH
+    old_db_path = app_module.DB_PATH
+    app_module.DB_PATH = db_path
+    app_module.app.config['DB_PATH'] = db_path
+    app_module.app.config['TESTING'] = True
+    
+    # Réinitialiser le rate limiter
+    app_module._rate_limits.clear()
+    
+    # Réinitialiser la base
+    app_module.init_db()
+    
+    flask_app = app_module.app
     
     yield flask_app
     
     # Cleanup
-    os.close(db_fd)
-    os.unlink(db_path)
+    app_module.DB_PATH = old_db_path
+    try:
+        os.close(db_fd)
+    except OSError:
+        pass
+    try:
+        os.unlink(db_path)
+    except OSError:
+        pass
 
 
 @pytest.fixture
