@@ -1252,11 +1252,27 @@ async function startScheduler(){const r=await api('/premium/scheduler/start',{me
 async function stopScheduler(){const r=await api('/premium/scheduler/stop',{method:'POST'});if(r)toast('Scheduler arrêté','warning');loadScheduler();}
 
 // ── NOTIFICATION BADGE (appelé au login) ─────────────────────────────────
-// Charger le badge de notifs au démarrage
+let _notifInterval = null;
+
+async function loadNotifBadge(){
+  // Ne pas appeler si pas de token (pas connecté)
+  if(!TOKEN) return;
+  try{
+    const res=await fetch(API+'/premium/notifications/unread-count',{headers:{'Content-Type':'application/json','Authorization':`Bearer ${TOKEN}`}});
+    if(!res.ok) return; // Ignorer silencieusement les erreurs (pas de logout)
+    const data=await res.json();
+    const badge=document.getElementById('notif-badge');
+    if(badge){if(data.count>0){badge.textContent=data.count;badge.style.display='inline';}else{badge.style.display='none';}}
+  }catch(e){/* silencieux */}
+}
+
+// Surcharger initApp pour charger le badge après login
 const _origInitApp = initApp;
 initApp = async function(){
   await _origInitApp();
+  // Démarrer le badge seulement après connexion réussie
   loadNotifBadge();
-  // Rafraîchir le badge toutes les 30 secondes
-  setInterval(loadNotifBadge, 30000);
+  // Arrêter l'ancien interval si existant
+  if(_notifInterval) clearInterval(_notifInterval);
+  _notifInterval = setInterval(loadNotifBadge, 30000);
 };
